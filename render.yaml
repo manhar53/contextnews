@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: contextnews-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: NEWSAPI_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: GEMINI_FALLBACK_MODEL
+        value: gemini-flash-latest
+      - key: RSS_FETCH_INTERVAL_HOURS
+        value: "2"
+      - key: NEWSAPI_FETCH_INTERVAL_HOURS
+        value: "6"
+      - key: DAILY_ANALYSIS_LIMIT
+        value: "10"
+      - key: JWT_SECRET
+        generateValue: true
+      # Set after deploy: localhost + your Vercel URL (comma-separated, no spaces)
+      - key: ALLOWED_ORIGINS
+        sync: false

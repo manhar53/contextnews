@@ -1,0 +1,74 @@
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { api } from "../api";
+import ImpactTag from "./ImpactTag.jsx";
+
+function timeAgo(iso) {
+  if (!iso) return "";
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.round(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.round(diff / 3600)}h ago`;
+  return `${Math.round(diff / 86400)}d ago`;
+}
+
+function oneLine(text) {
+  if (!text) return "";
+  const t = text.trim();
+  return t.length > 140 ? t.slice(0, 140).trimEnd() + "…" : t;
+}
+
+export default function NewsCard({ article }) {
+  const [dismissed, setDismissed] = useState(false);
+
+  if (dismissed) return null;
+
+  const down = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDismissed(true);
+    api.signalDown(article.id).catch(() => setDismissed(false));
+  };
+
+  return (
+    <Link
+      to={`/news/${article.id}`}
+      className="block bg-surface border border-border rounded-xl p-4 hover:border-accent transition"
+    >
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <h3 className="font-semibold leading-snug">{article.headline}</h3>
+        <div className="flex items-center gap-2 shrink-0">
+          <ImpactTag level={article.impact_level} />
+          <button
+            onClick={down}
+            title="Not relevant"
+            className="text-muted hover:text-impactHigh text-xs"
+          >
+            👎
+          </button>
+        </div>
+      </div>
+      {article.description && (
+        <p className="text-muted text-sm line-clamp-2 mb-3">
+          {oneLine(article.description)}
+        </p>
+      )}
+      <div className="flex items-center gap-2 text-xs text-muted">
+        <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-surface2 text-[10px] font-bold text-text/80">
+          {(article.source || "?").slice(0, 1).toUpperCase()}
+        </span>
+        <span className="font-medium text-text/80">
+          {article.source || "Unknown source"}
+        </span>
+        <span>•</span>
+        <span>{timeAgo(article.published_at)}</span>
+        {article.category && (
+          <>
+            <span>•</span>
+            <span className="capitalize">{article.category}</span>
+          </>
+        )}
+      </div>
+    </Link>
+  );
+}
