@@ -19,11 +19,27 @@ REQUEST_HEADERS = {
     "Accept": "application/rss+xml, application/xml",
 }
 
+def _gnews(query: str) -> str:
+    """Google News RSS search feed (India edition) — aggregates many publishers.
+
+    Approach borrowed from fetch-and-index-global-news / worldmonitor, which
+    lean on Google News RSS + many feeds for source diversity.
+    """
+    from urllib.parse import quote
+
+    return (
+        f"https://news.google.com/rss/search?q={quote(query)}"
+        "&hl=en-IN&gl=IN&ceid=IN:en"
+    )
+
+
 # feed url -> (source name, default category)
 RSS_FEEDS: dict[str, tuple[str, str]] = {
+    # Broad
     "http://feeds.bbci.co.uk/news/rss.xml": ("BBC News", "general"),
     "https://feeds.reuters.com/reuters/topNews": ("Reuters", "general"),
-    "https://www.aljazeera.com/xml/rss/all.xml": ("Al Jazeera", "geopolitics"),
+    # Al Jazeera moved to 'general' so it stops flooding the Defence tab.
+    "https://www.aljazeera.com/xml/rss/all.xml": ("Al Jazeera", "general"),
     "https://www.thehindu.com/feeder/default.rss": ("The Hindu", "india"),
     "https://indianexpress.com/feed/": ("Indian Express", "india"),
     "https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3": ("PIB India", "government"),
@@ -33,6 +49,18 @@ RSS_FEEDS: dict[str, tuple[str, str]] = {
     "https://idsa.in/rss": ("IDSA", "defence"),
     "https://www.hindustantimes.com/feeds/rss/india-news/rssfeed.xml": ("Hindustan Times", "india"),
     "https://feeds.feedburner.com/ndtvnews-india-news": ("NDTV India", "india"),
+    # Indian defence-specific publishers
+    "https://www.thehindu.com/news/national/feeder/default.rss": ("The Hindu National", "india"),
+    "https://www.financialexpress.com/about/defence/feed/": ("Financial Express Defence", "defence"),
+    "https://theprint.in/category/diplomacy/feed/": ("The Print Diplomacy", "geopolitics"),
+    # Google News RSS aggregates (many publishers, India-targeted) — diversity
+    _gnews("India defence"): ("Google News · India Defence", "defence"),
+    _gnews("Indian Army OR Indian Navy OR Indian Air Force"): ("Google News · Armed Forces", "defence"),
+    _gnews("DRDO OR HAL OR defence acquisition India"): ("Google News · Defence Tech", "defence"),
+    _gnews("India China border OR India Pakistan border"): ("Google News · Borders", "geopolitics"),
+    _gnews("Indian foreign policy OR India diplomacy OR Indo-Pacific"): ("Google News · Diplomacy", "geopolitics"),
+    _gnews("Ministry of Defence India OR defence budget India"): ("Google News · MoD/Policy", "government"),
+    _gnews("Indian economy"): ("Google News · Economy", "economy"),
 }
 
 
@@ -91,13 +119,27 @@ def fetch_rss_feeds() -> int:
                         continue
                     seen_urls.add(link)
 
+                    # Google News titles are "Headline - Publisher"; resolve the
+                    # real publisher so credibility scoring still applies.
+                    disp_source = source
+                    if source.startswith("Google News"):
+                        pub = (entry.get("source") or {}).get("title")
+                        if pub:
+                            disp_source = pub
+                            if title.endswith(f" - {pub}"):
+                                title = title[: -len(f" - {pub}")].strip()
+                        elif " - " in title:
+                            title, _, pub = title.rpartition(" - ")
+                            title = title.strip()
+                            disp_source = pub.strip() or source
+
                     norm = normalise(title)
                     db.add(
                         Article(
                             url=link,
                             headline=title,
                             headline_norm=norm,
-                            source=source,
+                            source=disp_source,
                             author=entry.get("author"),
                             description=_clean(entry.get("summary")),
                             content=_clean(entry.get("summary")),
@@ -108,7 +150,7 @@ def fetch_rss_feeds() -> int:
                             ),
                             origin="rss",
                             category=category,
-                            source_priority=get_priority(source),
+                            source_priority=get_priority(disp_source),
                             published_at=_entry_dt(entry),
                         )
                     )

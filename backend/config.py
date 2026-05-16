@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     newsapi_fetch_interval_hours: int = 6
 
     google_client_id: str = ""   # for Google Sign-In token verification
+    owner_email: str = ""         # this account bypasses the daily analysis limit
 
     jwt_secret: str = "change-me-in-production"
     jwt_expire_minutes: int = 60 * 24 * 7

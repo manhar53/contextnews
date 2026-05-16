@@ -31,24 +31,20 @@ class TokenOut(BaseModel):
 
 class PreferencesIn(BaseModel):
     profile: str = "defence_aspirant"
-    preparing_for: Optional[str] = None
-    journey_stage: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
     weak_areas: list[str] = []
-    news_scope: str = "national"
+    news_scopes: list[str] = ["national"]   # any of global/national/local
     notifications: dict[str, Any] = {}
     onboarded: bool = True
 
 
 class PreferencesOut(BaseModel):
     profile: str
-    preparing_for: Optional[str] = None
-    journey_stage: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
     weak_areas: list[str] = []
-    news_scope: str = "national"
+    news_scopes: list[str] = ["national"]
     notifications: dict[str, Any] = {}
     onboarded: bool = False
 
@@ -100,3 +96,4 @@ class UsageOut(BaseModel):
     limit: int
     remaining: int
     resets_at_ist: str
+    unlimited: bool = False

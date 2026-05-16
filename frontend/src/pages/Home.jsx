@@ -95,7 +95,9 @@ export default function Home() {
               <h1 className="text-xl font-bold">ContextNews</h1>
               {usage && (
                 <p className="text-xs text-muted">
-                  {usage.remaining} of {usage.limit} analyses remaining today
+                  {usage.unlimited
+                    ? "Unlimited analyses (owner)"
+                    : `${usage.remaining} of ${usage.limit} analyses remaining today`}
                 </p>
               )}
             </div>

@@ -133,6 +133,14 @@ def google_auth(body: schemas.GoogleAuthIn, db: Session = Depends(get_db)):
 
 # ---------- Preferences ----------
 
+def _is_owner(user: models.User) -> bool:
+    return bool(
+        settings.owner_email
+        and user.email
+        and user.email.lower() == settings.owner_email.lower()
+    )
+
+
 def _prefs_for(db: Session, user: models.User) -> models.UserPreferences:
     prefs = user.preferences
     if not prefs:
@@ -143,22 +151,30 @@ def _prefs_for(db: Session, user: models.User) -> models.UserPreferences:
     return prefs
 
 
+def _scopes_of(p: models.UserPreferences) -> list[str]:
+    raw = p.news_scope or "national"
+    vals = raw.split(",") if isinstance(raw, str) else list(raw)
+    out = [v.strip() for v in vals if v and v.strip() in {"global", "national", "local"}]
+    return out or ["national"]
+
+
+def _prefs_out(p: models.UserPreferences) -> schemas.PreferencesOut:
+    return schemas.PreferencesOut(
+        profile=p.profile,
+        city=p.city,
+        state=p.state,
+        weak_areas=p.weak_areas or [],
+        news_scopes=_scopes_of(p),
+        notifications=p.notifications or {},
+        onboarded=bool(p.onboarded),
+    )
+
+
 @app.get("/api/preferences", response_model=schemas.PreferencesOut)
 def get_preferences(
     user: models.User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    p = _prefs_for(db, user)
-    return schemas.PreferencesOut(
-        profile=p.profile,
-        preparing_for=p.preparing_for,
-        journey_stage=p.journey_stage,
-        city=p.city,
-        state=p.state,
-        weak_areas=p.weak_areas or [],
-        news_scope=p.news_scope,
-        notifications=p.notifications or {},
-        onboarded=bool(p.onboarded),
-    )
+    return _prefs_out(_prefs_for(db, user))
 
 
 @app.put("/api/preferences", response_model=schemas.PreferencesOut)
@@ -169,27 +185,16 @@ def save_preferences(
 ):
     p = _prefs_for(db, user)
     p.profile = body.profile
-    p.preparing_for = body.preparing_for
-    p.journey_stage = body.journey_stage
     p.city = body.city
     p.state = body.state
     p.weak_areas = body.weak_areas
-    p.news_scope = body.news_scope
+    scopes = [s for s in body.news_scopes if s in {"global", "national", "local"}]
+    p.news_scope = ",".join(scopes or ["national"])
     p.notifications = body.notifications
     p.onboarded = body.onboarded
     db.commit()
     db.refresh(p)
-    return schemas.PreferencesOut(
-        profile=p.profile,
-        preparing_for=p.preparing_for,
-        journey_stage=p.journey_stage,
-        city=p.city,
-        state=p.state,
-        weak_areas=p.weak_areas or [],
-        news_scope=p.news_scope,
-        notifications=p.notifications or {},
-        onboarded=bool(p.onboarded),
-    )
+    return _prefs_out(p)
 
 
 # ---------- News feed ----------
@@ -241,6 +246,49 @@ def _user_affinity(db: Session, user_id: int):
 
 _PERIOD_DAYS = {"24h": 1, "7d": 7, "30d": 30, "90d": 90, "1y": 365}
 
+_SCOPE_CATEGORIES = {
+    "global": {"geopolitics", "economy", "general"},
+    "national": {"india", "defence", "government"},
+    "local": {"india", "government"},
+}
+
+# Defence-aspirant topical relevance keywords -> weight.
+_RELEVANCE_KW: dict[str, int] = {
+    "india": 3, "indian": 3, "defence": 4, "defense": 4, "military": 4,
+    "army": 4, "navy": 4, "air force": 4, "iaf": 4, "drdo": 4, "isro": 2,
+    "missile": 3, "border": 3, "china": 3, "pakistan": 3, "ladakh": 3,
+    "loc": 2, "lac": 3, "galwan": 3, "kashmir": 3, "ssb": 3, "nda": 2,
+    "cds": 2, "afcat": 2, "soldier": 2, "war": 3, "security": 2,
+    "geopolitic": 3, "diplomacy": 2, "ministry of defence": 4,
+    "armed forces": 4, "terror": 3, "insurgency": 2, "indo-pacific": 3,
+    "quad": 2, "brahmos": 3, "tejas": 3, "submarine": 3, "regiment": 2,
+    "paramilitary": 2, "strategic": 2, "frontier": 2, "naval": 3,
+    "aircraft": 2, "warship": 3, "defence ministry": 4, "s-400": 3,
+    "rafale": 3, "sukhoi": 2, "border security": 3, "ceasefire": 2,
+}
+_IMPACT_BOOST = {"high": 8, "medium": 4, "low": 1}
+
+
+def _relevance(a: models.Article, affinity: float = 0.0) -> float:
+    text = f"{a.headline or ''} {a.description or ''}".lower()
+    topical = 0
+    for kw, w in _RELEVANCE_KW.items():
+        if kw in text:
+            topical += w
+    topical = min(topical, 24)
+
+    cred = float(a.source_priority or 5)            # 0-10
+    impact = _IMPACT_BOOST.get(
+        a.analysis.impact_level if a.analysis else "", 0
+    )
+    # Freshness keeps current affairs influential without dominating.
+    fresh = 0.0
+    if a.published_at:
+        age_d = (datetime.utcnow() - a.published_at).total_seconds() / 86400
+        fresh = max(0.0, 12.0 - age_d * 0.4)
+
+    return topical + cred + impact + fresh + affinity
+
 
 @app.get("/api/news", response_model=list[schemas.ArticleOut])
 def list_news(
@@ -253,11 +301,10 @@ def list_news(
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Current affairs first. tab: top | defence | personalised.
-
-    Recency is the primary ordering; source credibility / personalisation are
-    tiebreakers. Historic GDELT backfill is hidden from the default feed and
-    only surfaced when searching, picking a year, or period=all.
+    """Relevance-prioritised within a freshness window. tab: top | defence |
+    personalised. Order = defence-topical relevance + credibility + analysed
+    impact + freshness (+ personal affinity). Historic GDELT is hidden unless
+    searching, a year, or period=all is chosen.
     """
     query = db.query(models.Article)
 
@@ -265,16 +312,10 @@ def list_news(
         query = query.filter(models.Article.category.in_(DEFENCE_CATEGORIES))
     elif tab == "personalised":
         p = _prefs_for(db, user)
-        if p.news_scope == "global":
-            query = query.filter(
-                models.Article.category.in_({"geopolitics", "economy", "general"})
-            )
-        elif p.news_scope == "local":
-            query = query.filter(models.Article.category.in_({"india", "government"}))
-        else:  # national
-            query = query.filter(
-                models.Article.category.in_({"india", "defence", "government"})
-            )
+        cats: set[str] = set()
+        for sc in _scopes_of(p):
+            cats |= _SCOPE_CATEGORIES.get(sc, set())
+        query = query.filter(models.Article.category.in_(cats or {"india"}))
 
     if q:
         like = f"%{q.strip()}%"
@@ -282,12 +323,10 @@ def list_news(
             or_(models.Article.headline.ilike(like), models.Article.description.ilike(like))
         )
 
-    # Historic (GDELT 5-yr backfill) only when explicitly wanted.
     include_historic = period == "all" or year is not None or bool(q)
     if not include_historic:
         query = query.filter(models.Article.origin != "gdelt")
 
-    # Date window
     if year is not None:
         query = query.filter(extract("year", models.Article.published_at) == year)
     elif period != "all":
@@ -295,49 +334,44 @@ def list_news(
         cutoff = datetime.utcnow() - timedelta(days=days)
         query = query.filter(models.Article.published_at >= cutoff)
 
-    if tab == "personalised":
-        # Recency-first, then learned affinity, then credibility. Downvoted hidden.
-        clicks, downs, down_ids = _user_affinity(db, user.id)
-        pool = (
-            query.order_by(models.Article.published_at.desc().nullslast())
-            .limit(500)
-            .all()
-        )
-
-        def affinity(a: models.Article) -> float:
-            cat = a.category or ""
-            return 1.5 * clicks.get(cat, 0) - 1.0 * downs.get(cat, 0)
-
-        ranked = sorted(
-            (a for a in pool if a.id not in down_ids),
-            key=lambda a: (
-                a.published_at or datetime.min,   # current affairs first
-                affinity(a),                       # then personalisation
-                a.source_priority or 5,            # then credibility
-            ),
-            reverse=True,
-        )
-        return [_to_card(a) for a in ranked[offset : offset + limit]]
-
-    # top / defence: recency first, source credibility as tiebreaker.
     cache_key = (
-        f"news:{tab}:{period}:{year}:{offset}:{limit}" if not q else None
+        f"news:{tab}:{period}:{year}:{offset}:{limit}"
+        if tab != "personalised" and not q
+        else None
     )
     if cache_key:
         cached = cache_get(db, cache_key)
         if cached is not None:
             return cached
 
-    rows = (
-        query.order_by(
-            models.Article.published_at.desc().nullslast(),
-            models.Article.source_priority.desc(),
-        )
-        .offset(offset)
-        .limit(limit)
+    # Candidate pool ordered by recency, then ranked by relevance in Python.
+    pool = (
+        query.order_by(models.Article.published_at.desc().nullslast())
+        .limit(600)
         .all()
     )
-    result = [_to_card(a) for a in rows]
+
+    if tab == "personalised":
+        clicks, downs, down_ids = _user_affinity(db, user.id)
+        pool = [a for a in pool if a.id not in down_ids]
+
+        def aff(a: models.Article) -> float:
+            c = a.category or ""
+            return 1.5 * clicks.get(c, 0) - 1.0 * downs.get(c, 0)
+
+        ranked = sorted(
+            pool,
+            key=lambda a: (_relevance(a, aff(a)), a.published_at or datetime.min),
+            reverse=True,
+        )
+        return [_to_card(a) for a in ranked[offset : offset + limit]]
+
+    ranked = sorted(
+        pool,
+        key=lambda a: (_relevance(a), a.published_at or datetime.min),
+        reverse=True,
+    )
+    result = [_to_card(a) for a in ranked[offset : offset + limit]]
     if cache_key:
         cache_set(
             db,
@@ -392,7 +426,8 @@ def deep_analyze(
         raise HTTPException(status_code=404, detail="Article not found")
 
     if a.analysis is None:
-        usage = assert_quota(db, user.id)  # 429 if user's daily limit hit
+        owner = _is_owner(user)
+        usage = None if owner else assert_quota(db, user.id)
         try:
             analysis = analyze_article(db, a)
         except GeminiRateLimited:
@@ -405,9 +440,10 @@ def deep_analyze(
                 status_code=502,
                 detail="Gemini analysis failed (check GEMINI_API_KEY / model). Quota not consumed.",
             )
-        consume_quota(db, usage)  # only on success
+        if usage is not None:
+            consume_quota(db, usage)  # owners bypass the daily limit
     else:
-        analysis = a.analysis
+        analysis = a.analysis  # cached → free for everyone, no quota spent
 
     return schemas.ArticleDetailOut(
         id=a.id,
@@ -431,12 +467,21 @@ def deep_analyze(
 def usage(
     user: models.User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
+    if _is_owner(user):
+        return schemas.UsageOut(
+            used=0,
+            limit=settings.daily_analysis_limit,
+            remaining=settings.daily_analysis_limit,
+            resets_at_ist=next_ist_midnight_iso(),
+            unlimited=True,
+        )
     u = get_usage(db, user.id)
     return schemas.UsageOut(
         used=u.count,
         limit=settings.daily_analysis_limit,
         remaining=max(0, settings.daily_analysis_limit - u.count),
         resets_at_ist=next_ist_midnight_iso(),
+        unlimited=False,
     )
 
 

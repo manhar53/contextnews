@@ -2,8 +2,6 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 
-const EXAMS = ["NDA", "CDS", "SSB Direct Entry", "AFCAT", "Territorial Army"];
-const STAGES = ["Just Starting", "Written Cleared SSB Pending", "Repeater"];
 const WEAK_AREAS = [
   "Lecturette Topics",
   "Current Affairs Depth",
@@ -40,22 +38,20 @@ export default function Onboarding({ onDone }) {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     profile: "defence_aspirant",
-    preparing_for: "",
-    journey_stage: "",
     city: "",
     state: "",
     weak_areas: [],
-    news_scope: "national",
+    news_scopes: ["national"],
     notifications: { breaking: true, daily_digest: true },
   });
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-  const toggleWeak = (w) =>
+  const toggleIn = (key, val) =>
     setForm((f) => ({
       ...f,
-      weak_areas: f.weak_areas.includes(w)
-        ? f.weak_areas.filter((x) => x !== w)
-        : [...f.weak_areas, w],
+      [key]: f[key].includes(val)
+        ? f[key].filter((x) => x !== val)
+        : [...f[key], val],
     }));
   const toggleNotif = (k) =>
     setForm((f) => ({
@@ -80,8 +76,8 @@ export default function Onboarding({ onDone }) {
     step === 1
       ? form.profile === "defence_aspirant"
       : step === 2
-      ? form.preparing_for && form.journey_stage
-      : true;
+      ? true
+      : form.news_scopes.length > 0;
 
   return (
     <div className="min-h-screen bg-bg text-text px-5 py-10">
@@ -103,7 +99,7 @@ export default function Onboarding({ onDone }) {
             >
               <div className="font-semibold">Defence Aspirant</div>
               <div className="text-muted text-sm">
-                NDA, CDS, SSB, AFCAT & more — tailored defence affairs.
+                NDA, CDS, SSB, AFCAT, Territorial Army — defence current affairs.
               </div>
             </button>
             {COMING_SOON.map((p) => (
@@ -121,66 +117,37 @@ export default function Onboarding({ onDone }) {
         {step === 2 && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-lg font-semibold mb-3">
-                What are you preparing for?
-              </h2>
-              <div className="flex flex-wrap gap-2">
-                {EXAMS.map((e) => (
-                  <button
-                    key={e}
-                    onClick={() => set("preparing_for", e)}
-                    className={`px-3 py-2 rounded-lg border text-sm ${
-                      form.preparing_for === e
-                        ? "border-accent bg-surface2"
-                        : "border-border bg-surface"
-                    }`}
-                  >
-                    {e}
-                  </button>
-                ))}
+              <h2 className="text-lg font-semibold mb-1">Your location</h2>
+              <p className="text-muted text-xs mb-3">
+                Used only for Local news.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <input
+                  placeholder="City"
+                  value={form.city}
+                  onChange={(e) => set("city", e.target.value)}
+                  className="bg-surface border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-accent"
+                />
+                <input
+                  placeholder="State"
+                  value={form.state}
+                  onChange={(e) => set("state", e.target.value)}
+                  className="bg-surface border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-accent"
+                />
               </div>
             </div>
             <div>
               <h2 className="text-lg font-semibold mb-3">
-                Where are you in your journey?
+                Weak areas{" "}
+                <span className="text-muted text-xs font-normal">
+                  (optional)
+                </span>
               </h2>
-              <div className="flex flex-col gap-2">
-                {STAGES.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => set("journey_stage", s)}
-                    className={`px-3 py-2 rounded-lg border text-sm text-left ${
-                      form.journey_stage === s
-                        ? "border-accent bg-surface2"
-                        : "border-border bg-surface"
-                    }`}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <input
-                placeholder="City"
-                value={form.city}
-                onChange={(e) => set("city", e.target.value)}
-                className="bg-surface border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-accent"
-              />
-              <input
-                placeholder="State"
-                value={form.state}
-                onChange={(e) => set("state", e.target.value)}
-                className="bg-surface border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-accent"
-              />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold mb-3">Weak areas</h2>
               <div className="flex flex-wrap gap-2">
                 {WEAK_AREAS.map((w) => (
                   <button
                     key={w}
-                    onClick={() => toggleWeak(w)}
+                    onClick={() => toggleIn("weak_areas", w)}
                     className={`px-3 py-2 rounded-lg border text-sm ${
                       form.weak_areas.includes(w)
                         ? "border-accent bg-surface2"
@@ -198,22 +165,39 @@ export default function Onboarding({ onDone }) {
         {step === 3 && (
           <div className="space-y-8">
             <div>
-              <h2 className="text-lg font-semibold mb-4">News preferences</h2>
+              <h2 className="text-lg font-semibold mb-1">News scope</h2>
+              <p className="text-muted text-xs mb-3">
+                Pick one or more — your feed blends all selected.
+              </p>
               <div className="space-y-3">
-                {SCOPES.map((s) => (
-                  <button
-                    key={s.key}
-                    onClick={() => set("news_scope", s.key)}
-                    className={`w-full text-left p-4 rounded-xl border transition ${
-                      form.news_scope === s.key
-                        ? "border-accent bg-surface2"
-                        : "border-border bg-surface"
-                    }`}
-                  >
-                    <div className="font-semibold">{s.label}</div>
-                    <div className="text-muted text-sm">{s.desc}</div>
-                  </button>
-                ))}
+                {SCOPES.map((s) => {
+                  const on = form.news_scopes.includes(s.key);
+                  return (
+                    <button
+                      key={s.key}
+                      onClick={() => toggleIn("news_scopes", s.key)}
+                      className={`w-full text-left p-4 rounded-xl border transition flex items-center justify-between ${
+                        on
+                          ? "border-accent bg-surface2"
+                          : "border-border bg-surface"
+                      }`}
+                    >
+                      <span>
+                        <span className="font-semibold block">{s.label}</span>
+                        <span className="text-muted text-sm">{s.desc}</span>
+                      </span>
+                      <span
+                        className={`w-5 h-5 rounded border flex items-center justify-center text-xs ${
+                          on
+                            ? "bg-accent border-accent text-white"
+                            : "border-border"
+                        }`}
+                      >
+                        {on ? "✓" : ""}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
             <div>
@@ -258,7 +242,7 @@ export default function Onboarding({ onDone }) {
             </button>
           ) : (
             <button
-              disabled={saving}
+              disabled={saving || !canNext}
               onClick={finish}
               className="flex-1 px-5 py-2.5 rounded-lg bg-accent text-white text-sm font-semibold disabled:opacity-50"
             >
