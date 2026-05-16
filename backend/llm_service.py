@@ -77,7 +77,7 @@ def _gemini(system: str, user: str) -> dict | None:
                 },
             )
             resp = model.generate_content(user)
-            data = json.loads(resp.text)
+            data = json.loads(resp.text, strict=False)
             _log("gemini", "success")
             return data
         except json.JSONDecodeError as exc:
@@ -136,7 +136,9 @@ def _openai_compat(provider: str, base_url: str, api_key: str, model: str,
     try:
         data = r.json()
         text = data["choices"][0]["message"]["content"]
-        out = json.loads(_strip_json(text))
+        # strict=False: some open models emit literal newlines inside JSON
+        # string values (technically invalid but recoverable).
+        out = json.loads(_strip_json(text), strict=False)
         _log(provider, "success")
         return out
     except (KeyError, ValueError, json.JSONDecodeError) as exc:
