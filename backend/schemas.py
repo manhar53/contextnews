@@ -82,6 +82,7 @@ class ArticleOut(BaseModel):
     published_at: Optional[datetime]
     impact_level: Optional[str] = None
     lecturette_category: Optional[str] = None
+    important: bool = False
     analysed: bool = False
 
     class Config:

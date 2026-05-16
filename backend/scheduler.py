@@ -1,8 +1,9 @@
-"""Background scheduler: RSS every 2h, NewsAPI every 6h."""
+"""Background scheduler: RSS, NewsAPI, and auto-analysis of important topics."""
 import logging
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from auto_analyse import auto_analyse_important
 from config import settings
 from news_service import fetch_newsapi
 from rss_service import fetch_rss_feeds
@@ -32,11 +33,23 @@ def start_scheduler() -> None:
         next_run_time=None,
         replace_existing=True,
     )
+    if settings.auto_analyse_enabled:
+        _scheduler.add_job(
+            auto_analyse_important,
+            trigger="interval",
+            minutes=settings.auto_analyse_interval_minutes,
+            id="auto_analyse",
+            next_run_time=None,
+            replace_existing=True,
+        )
     _scheduler.start()
     logger.info(
-        "Scheduler started: RSS every %dh, NewsAPI every %dh",
+        "Scheduler started: RSS every %dh, NewsAPI every %dh, auto-analyse %s",
         settings.rss_fetch_interval_hours,
         settings.newsapi_fetch_interval_hours,
+        f"every {settings.auto_analyse_interval_minutes}m"
+        if settings.auto_analyse_enabled
+        else "disabled",
     )
 
 

@@ -38,6 +38,14 @@ export default function NewsCard({ article }) {
       <div className="flex items-start justify-between gap-3 mb-2">
         <h3 className="font-semibold leading-snug">{article.headline}</h3>
         <div className="flex items-center gap-2 shrink-0">
+          {article.important && (
+            <span
+              title="Important SSB lecturette/GD topic"
+              className="text-[10px] px-2 py-0.5 rounded border border-accent text-text"
+            >
+              ★ Topic
+            </span>
+          )}
           <ImpactTag level={article.impact_level} />
           <button
             onClick={cast("up")}

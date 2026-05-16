@@ -225,6 +225,8 @@ def _ses(a: models.Article) -> str:
 
 
 def _to_card(a: models.Article) -> schemas.ArticleOut:
+    from topics import is_important
+
     return schemas.ArticleOut(
         id=a.id,
         url=a.url,
@@ -239,6 +241,7 @@ def _to_card(a: models.Article) -> schemas.ArticleOut:
         published_at=a.published_at,
         impact_level=a.analysis.impact_level if a.analysis else None,
         lecturette_category=_ses(a),
+        important=is_important(f"{a.headline or ''} {a.description or ''}"),
         analysed=a.analysis is not None,
     )
 
@@ -342,25 +345,36 @@ def _weak_match(a: models.Article, weak: set[str]) -> int:
     return 0
 
 
-def _relevance(a: models.Article, affinity: float = 0.0) -> float:
+def _freshness(a: models.Article) -> float:
+    if not a.published_at:
+        return 0.0
+    age_d = (datetime.utcnow() - a.published_at).total_seconds() / 86400
+    return max(0.0, 12.0 - age_d * 0.4)
+
+
+def _topical(a: models.Article) -> int:
     text = f"{a.headline or ''} {a.description or ''}".lower()
-    topical = 0
-    for kw, w in _RELEVANCE_KW.items():
-        if kw in text:
-            topical += w
-    topical = min(topical, 24)
+    score = sum(w for kw, w in _RELEVANCE_KW.items() if kw in text)
+    return min(score, 24)
 
-    cred = float(a.source_priority or 5)            # 0-10
-    impact = _IMPACT_BOOST.get(
-        a.analysis.impact_level if a.analysis else "", 0
-    )
-    # Freshness keeps current affairs influential without dominating.
-    fresh = 0.0
-    if a.published_at:
-        age_d = (datetime.utcnow() - a.published_at).total_seconds() / 86400
-        fresh = max(0.0, 12.0 - age_d * 0.4)
 
-    return topical + cred + impact + fresh + affinity
+def _impact_boost(a: models.Article) -> int:
+    return _IMPACT_BOOST.get(a.analysis.impact_level if a.analysis else "", 0)
+
+
+def _relevance(a: models.Article, affinity: float = 0.0) -> float:
+    """Defence-topical ranking — for the Defence tab and Personalised affinity."""
+    return _topical(a) + float(a.source_priority or 5) + _impact_boost(a) + _freshness(a) + affinity
+
+
+def _general_score(a: models.Article) -> float:
+    """Top Stories — broadest-importance score, NOT defence-keyword biased.
+
+    Surfaces the biggest stories of the day across all categories so this tab
+    is distinct from the Defence tab.
+    """
+    cred = float(a.source_priority or 5)
+    return cred * 1.4 + _impact_boost(a) * 1.5 + _freshness(a) * 1.5
 
 
 @app.get("/api/news", response_model=list[schemas.ArticleOut])
@@ -453,14 +467,32 @@ def list_news(
         )
         return [_to_card(a) for a in ranked[offset : offset + limit]]
 
+    score_fn = _general_score if tab == "top" else _relevance
+
+    def _diversify_top(items: list, per_cat: int) -> list:
+        """Cap each category so Top Stories shows a real cross-topic mix."""
+        counts: dict[str, int] = {}
+        out, overflow = [], []
+        for a in items:
+            c = a.category or ""
+            if counts.get(c, 0) < per_cat:
+                counts[c] = counts.get(c, 0) + 1
+                out.append(a)
+            else:
+                overflow.append(a)
+        return out + overflow  # overflow appended so pagination still works
+
     ranked = sorted(
         pool,
         key=lambda a: (
-            _relevance(a) + crowd.get(a.id, 0.0),
+            score_fn(a) + crowd.get(a.id, 0.0),
             a.published_at or datetime.min,
         ),
         reverse=True,
     )
+    if tab == "top":
+        # cross-category mix so Top is visibly broader than Defence
+        ranked = _diversify_top(ranked, per_cat=max(2, limit // 3))
     result = [_to_card(a) for a in ranked[offset : offset + limit]]
     if cache_key:
         cache_set(

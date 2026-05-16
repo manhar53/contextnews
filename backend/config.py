@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me-in-production"
     jwt_expire_minutes: int = 60 * 24 * 7
     daily_analysis_limit: int = 10
+    # Background auto-analysis of "important" SSB topics (no user / no quota).
+    auto_analyse_enabled: bool = True
+    auto_analyse_interval_minutes: int = 30
+    auto_analyse_per_run: int = 3
 
     # Comma-separated origins allowed by CORS. Override via ALLOWED_ORIGINS env.
     allowed_origins: str = (
