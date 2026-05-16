@@ -2,7 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import extract, or_
 from sqlalchemy.orm import Session
@@ -759,13 +759,21 @@ def refresh_news(
 
 
 @app.post("/api/admin/auto-analyse")
-def admin_run_auto_analyse(user: models.User = Depends(get_current_user)):
-    """Owner-only: kick a synchronous auto_analyse_important run on demand."""
+def admin_run_auto_analyse(
+    background_tasks: BackgroundTasks,
+    user: models.User = Depends(get_current_user),
+):
+    """Owner-only: kick the auto_analyse_important batch in the background.
+
+    Returns immediately ("started"). The run can take up to 20 minutes; check
+    the Stats modal to see successes climb across providers.
+    """
     if not _is_owner(user):
         raise HTTPException(status_code=403, detail="Owner only")
     from auto_analyse import auto_analyse_important
 
-    return {"analysed": auto_analyse_important()}
+    background_tasks.add_task(auto_analyse_important)
+    return {"started": True, "note": "Running in background; refresh Stats to track."}
 
 
 # ---------- Lecturette Prep (AFPA topic-organised view) ----------
@@ -813,6 +821,150 @@ def lecturette_topics(
         )
     out.sort(key=lambda x: (-x["analysed"], -x["total"], x["name"]))
     return out
+
+
+_TOPIC_LEC_SYSTEM = """You are an expert SSB coach composing a 3-minute lecturette on a fixed topic. Use the recent news articles supplied below as factual grounding — do not invent facts beyond them and your training knowledge.
+
+Follow the three aims of public speaking:
+1. get into your subject — open with crisp command of facts and context;
+2. get your subject into yourself — three reasoned points where the speaker takes a clear stance, not a recitation;
+3. get your subject into the heart of the audience — conclude tying back to national interest / the listener with conviction.
+
+Respond ONLY with valid JSON, exactly these fields:
+{
+  "topic_overview": "string (3-4 sentences setting context)",
+  "opening": "string (one sentence the speaker says first)",
+  "point_one": "string",
+  "point_two": "string",
+  "point_three": "string",
+  "conclusion": "string (one strong sentence)",
+  "key_facts": ["short factual bullet", "..."],
+  "key_terms": [{"term": "string", "definition": "one-line"}],
+  "estimated_minutes": 3
+}
+Use crisp speakable sentences, not written prose."""
+
+
+def _topic_lecturette_input(topic_name: str, articles: list[models.Article]) -> str:
+    lines = [f"TOPIC: {topic_name}", "", "RECENT ARTICLES (use as factual grounding):"]
+    for a in articles:
+        analysed = a.analysis.summary if a.analysis and a.analysis.summary else (a.description or "")
+        lines.append(
+            f"- {a.published_at:%Y-%m-%d} [{a.source}] {a.headline}\n  {analysed[:300]}"
+            if a.published_at
+            else f"- [{a.source}] {a.headline}\n  {analysed[:300]}"
+        )
+    return "\n".join(lines)
+
+
+@app.get("/api/lecturette/topics/{slug}/summary")
+def lecturette_topic_summary(
+    slug: str,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Cached readymade lecturette for this topic (or null if not generated)."""
+    row = (
+        db.query(models.TopicLecturette)
+        .filter(models.TopicLecturette.slug == slug)
+        .first()
+    )
+    if not row:
+        return {"slug": slug, "content": None, "generated_at": None}
+    return {
+        "slug": slug,
+        "name": row.name,
+        "content": row.content,
+        "generated_at": row.generated_at.replace(tzinfo=timezone.utc).isoformat(),
+        "article_count": len(row.article_ids or []),
+    }
+
+
+@app.post("/api/lecturette/topics/{slug}/generate")
+def lecturette_topic_generate(
+    slug: str,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Synthesize a readymade 3-min lecturette across the topic's recent
+    articles. Cached and shared with all users; safe to re-call (will refresh
+    if older than 12h)."""
+    from llm_service import AllProvidersRateLimited, generate_json
+    from topics import TOPICS_BY_SLUG
+
+    t = TOPICS_BY_SLUG.get(slug)
+    if not t:
+        raise HTTPException(status_code=404, detail="Unknown topic")
+
+    existing = (
+        db.query(models.TopicLecturette)
+        .filter(models.TopicLecturette.slug == slug)
+        .first()
+    )
+    if existing and (datetime.utcnow() - existing.generated_at) < timedelta(hours=12):
+        return {
+            "slug": slug,
+            "name": existing.name,
+            "content": existing.content,
+            "generated_at": existing.generated_at.replace(tzinfo=timezone.utc).isoformat(),
+            "cached": True,
+        }
+
+    cond = _topic_keyword_filter(t["keywords"])
+    cutoff = datetime.utcnow() - timedelta(days=180)
+    articles = (
+        db.query(models.Article)
+        .outerjoin(models.Analysis, models.Analysis.article_id == models.Article.id)
+        .filter(cond)
+        .filter(models.Article.published_at >= cutoff)
+        .filter(models.Article.origin != "gdelt")
+        .order_by(
+            models.Analysis.id.is_(None).asc(),
+            models.Article.published_at.desc().nullslast(),
+            models.Article.source_priority.desc(),
+        )
+        .limit(8)
+        .all()
+    )
+    if not articles:
+        raise HTTPException(
+            status_code=404,
+            detail="No recent articles for this topic yet — try again after the next news fetch.",
+        )
+
+    user_content = _topic_lecturette_input(t["name"], articles)
+    try:
+        payload = generate_json(_TOPIC_LEC_SYSTEM, user_content)
+    except AllProvidersRateLimited:
+        raise HTTPException(
+            status_code=429,
+            detail="All LLM providers are rate-limited right now. Try again in ~30s.",
+        )
+    if payload is None:
+        raise HTTPException(status_code=502, detail="Lecturette generation failed.")
+
+    if existing:
+        existing.content = payload
+        existing.article_ids = [a.id for a in articles]
+        existing.generated_at = datetime.utcnow()
+        existing.name = t["name"]
+    else:
+        db.add(
+            models.TopicLecturette(
+                slug=slug,
+                name=t["name"],
+                content=payload,
+                article_ids=[a.id for a in articles],
+            )
+        )
+    db.commit()
+    return {
+        "slug": slug,
+        "name": t["name"],
+        "content": payload,
+        "generated_at": datetime.utcnow().replace(tzinfo=timezone.utc).isoformat(),
+        "cached": False,
+    }
 
 
 @app.get("/api/lecturette/topics/{slug}", response_model=list[schemas.ArticleOut])

@@ -60,6 +60,10 @@ export const api = {
   lecturetteTopics: () => req("/api/lecturette/topics"),
   lecturetteArticles: (slug, { limit = 20, offset = 0 } = {}) =>
     req(`/api/lecturette/topics/${slug}?limit=${limit}&offset=${offset}`),
+  lecturetteTopicSummary: (slug) =>
+    req(`/api/lecturette/topics/${slug}/summary`),
+  lecturetteTopicGenerate: (slug) =>
+    req(`/api/lecturette/topics/${slug}/generate`, { method: "POST" }),
   refreshNews: () => req("/api/news/refresh", { method: "POST" }),
   backfill: () => req("/api/news/backfill", { method: "POST" }),
   signalClick: (id) => req(`/api/news/${id}/click`, { method: "POST" }),

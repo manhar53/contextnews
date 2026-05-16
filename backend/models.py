@@ -120,6 +120,18 @@ class ArticleContext(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class TopicLecturette(Base):
+    """Synthesized 3-min lecturette per AFPA topic (cached, shared)."""
+
+    __tablename__ = "topic_lecturettes"
+
+    slug = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    content = Column(JSON, default=dict)            # full structured lecturette
+    article_ids = Column(JSON, default=list)        # ids used as input
+    generated_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class LLMUsage(Base):
     """Daily per-provider counters for visibility (attempts/successes/429s)."""
 

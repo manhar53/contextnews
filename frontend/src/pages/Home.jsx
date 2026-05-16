@@ -26,6 +26,9 @@ export default function Home() {
   const [lectSlug, setLectSlug] = useState(null);
   const [lectItems, setLectItems] = useState([]);
   const [lectLoading, setLectLoading] = useState(false);
+  const [lectSummary, setLectSummary] = useState(null);     // {content, generated_at}|null
+  const [lectGenLoading, setLectGenLoading] = useState(false);
+  const [lectGenError, setLectGenError] = useState("");
   const [items, setItems] = useState([]);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -82,17 +85,41 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  // Drill-down: load articles when a topic slug is selected.
+  // Drill-down: load articles + cached topic lecturette summary in parallel.
   useEffect(() => {
-    if (!lectSlug) return;
+    if (!lectSlug) {
+      setLectSummary(null);
+      setLectGenError("");
+      return;
+    }
     setLectLoading(true);
     setLectItems([]);
+    setLectSummary(null);
+    setLectGenError("");
     api
       .lecturetteArticles(lectSlug, { limit: 30 })
       .then(setLectItems)
       .catch(() => setLectItems([]))
       .finally(() => setLectLoading(false));
+    api
+      .lecturetteTopicSummary(lectSlug)
+      .then((s) => setLectSummary(s?.content ? s : null))
+      .catch(() => setLectSummary(null));
   }, [lectSlug]);
+
+  const generateLecturette = async () => {
+    if (!lectSlug) return;
+    setLectGenLoading(true);
+    setLectGenError("");
+    try {
+      const r = await api.lecturetteTopicGenerate(lectSlug);
+      setLectSummary(r);
+    } catch (e) {
+      setLectGenError(e.message);
+    } finally {
+      setLectGenLoading(false);
+    }
+  };
 
   useEffect(() => {
     api.usage().then(setUsage).catch(() => {});
@@ -319,6 +346,10 @@ export default function Home() {
             topics={lectTopics || []}
             slug={lectSlug}
             articles={lectItems}
+            summary={lectSummary}
+            genLoading={lectGenLoading}
+            genError={lectGenError}
+            onGenerate={generateLecturette}
             onPick={setLectSlug}
             onBack={() => setLectSlug(null)}
           />
@@ -428,23 +459,123 @@ export default function Home() {
   );
 }
 
-function LecturettePane({ loading, topics, slug, articles, onPick, onBack }) {
+function LecturettePane({
+  loading,
+  topics,
+  slug,
+  articles,
+  summary,
+  genLoading,
+  genError,
+  onGenerate,
+  onPick,
+  onBack,
+}) {
   if (slug) {
     const t = topics.find((x) => x.slug === slug);
+    const c = summary?.content;
     return (
       <div>
-        <button
-          onClick={onBack}
-          className="text-accent text-sm mb-3"
-        >
+        <button onClick={onBack} className="text-accent text-sm mb-3">
           ← All topics
         </button>
         <h2 className="text-lg font-bold mb-4">{t?.name || slug}</h2>
+
+        {/* Readymade lecturette synthesis */}
+        <section className="mb-6 bg-surface2 border border-border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+            <h3 className="font-bold">Readymade lecturette</h3>
+            <div className="flex items-center gap-3 text-xs text-muted">
+              {summary?.generated_at && (
+                <span>
+                  generated {new Date(summary.generated_at).toLocaleString()}
+                </span>
+              )}
+              <button
+                onClick={onGenerate}
+                disabled={genLoading}
+                className="px-3 py-1 rounded-lg border border-border hover:border-accent disabled:opacity-50"
+              >
+                {genLoading
+                  ? "Synthesising…"
+                  : c
+                  ? "Regenerate"
+                  : "Generate"}
+              </button>
+            </div>
+          </div>
+          {genError && <p className="text-impactHigh text-xs mb-2">{genError}</p>}
+          {!c ? (
+            <p className="text-muted text-sm">
+              Not generated yet for this topic. Click <b>Generate</b> — synthesises
+              a 3-min lecturette across the latest analysed articles. Cached and
+              shared with every user; refreshable after 12h.
+            </p>
+          ) : (
+            <div className="text-sm space-y-3">
+              {c.topic_overview && (
+                <p className="text-text/90">{c.topic_overview}</p>
+              )}
+              <div>
+                <div className="text-xs text-muted mb-1">Opening</div>
+                <p>{c.opening}</p>
+              </div>
+              <div>
+                <div className="text-xs text-muted mb-1">Main points</div>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>{c.point_one}</li>
+                  <li>{c.point_two}</li>
+                  <li>{c.point_three}</li>
+                </ol>
+              </div>
+              <div>
+                <div className="text-xs text-muted mb-1">Conclusion</div>
+                <p>{c.conclusion}</p>
+              </div>
+              {Array.isArray(c.key_facts) && c.key_facts.length > 0 && (
+                <div>
+                  <div className="text-xs text-muted mb-1">Key facts</div>
+                  <ul className="list-disc list-inside space-y-1">
+                    {c.key_facts.map((f, i) => (
+                      <li key={i}>{f}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {Array.isArray(c.key_terms) && c.key_terms.length > 0 && (
+                <div>
+                  <div className="text-xs text-muted mb-1">Key terms</div>
+                  <ul className="space-y-1">
+                    {c.key_terms.map((kt, i) => (
+                      <li key={i}>
+                        <span className="font-semibold">
+                          {typeof kt === "string" ? kt : kt.term}
+                        </span>
+                        {typeof kt === "object" && kt.definition && (
+                          <span className="text-muted"> — {kt.definition}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <p className="text-xs text-muted">
+                ~{c.estimated_minutes || 3} min · synthesised from{" "}
+                {summary?.article_count ?? "recent"} articles
+              </p>
+            </div>
+          )}
+        </section>
+
+        <h3 className="font-semibold text-sm text-muted mb-2">
+          Source articles (analysed first)
+        </h3>
         {loading ? (
           <p className="text-muted text-sm">Loading topic articles…</p>
         ) : articles.length === 0 ? (
           <p className="text-muted text-sm">
-            No recent articles match this topic yet. Auto-analysis runs every 20 min on freshly ingested news.
+            No recent articles match this topic yet. Auto-analysis runs every 20
+            min on freshly ingested news.
           </p>
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
