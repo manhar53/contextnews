@@ -1,0 +1,30 @@
+name: Keepalive (ping Render so it never sleeps)
+
+# Free 24/7 uptime ping: hits /api/health every 10 minutes via GitHub
+# Actions cron. Eliminates Render free-tier 15-min sleep, so RSS fetch,
+# NewsAPI fetch, and auto-analyse-of-important schedulers always run.
+# GitHub Actions cron is best-effort (may drift a few minutes during peak
+# GH load) — fine for keepalive.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Curl backend health
+        run: |
+          set -e
+          for url in \
+            "https://contextnews-api.onrender.com/api/health"; do
+            echo "Pinging $url"
+            curl -sS --max-time 60 -o /tmp/out "$url"
+            echo " status: $(jq -r .status </tmp/out 2>/dev/null || cat /tmp/out)"
+          done

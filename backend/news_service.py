@@ -109,4 +109,11 @@ def fetch_newsapi() -> int:
         logger.info("NewsAPI fetch complete. %d new articles.", total_new)
     finally:
         db.close()
+    if total_new:
+        try:
+            from auto_analyse import auto_analyse_important
+
+            auto_analyse_important()  # pre-analyse any new ★ articles immediately
+        except Exception as exc:  # noqa: BLE001  never break the fetch
+            logger.warning("Post-fetch auto-analyse skipped: %s", exc)
     return total_new

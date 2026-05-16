@@ -462,17 +462,24 @@ def list_news(
     if tab == "personalised":
         likes, dislikes = _user_affinity(db, user.id)
         weak = set(p.weak_areas or [])
+        from topics import is_important
 
         def aff(a: models.Article) -> float:
             c = a.category or ""
             # mild personal lean; nothing is hidden
             return 1.0 * likes.get(c, 0) - 0.5 * dislikes.get(c, 0)
 
-        # Weak areas form a priority tier: matching topics float to the top,
-        # still relevance + crowd ordered within each tier.
+        def imp(a: models.Article) -> int:
+            return 1 if is_important(f"{a.headline or ''} {a.description or ''}") else 0
+
+        # Tiered ranking for defence aspirants:
+        #   1) ★ important AFPA topics float to the very top,
+        #   2) then articles matching their weak areas,
+        #   3) then relevance + crowd + recency within.
         ranked = sorted(
             pool,
             key=lambda a: (
+                imp(a),
                 _weak_match(a, weak),
                 _relevance(a, aff(a)) + crowd.get(a.id, 0.0),
                 a.published_at or datetime.min,
