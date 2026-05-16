@@ -178,35 +178,35 @@ _PROVIDERS = {"gemini": _gemini, "groq": _groq, "openrouter": _openrouter}
 
 
 def generate_json(system: str, user: str) -> dict | None:
-    """Run the configured provider chain. None = bad output (not quota).
-    Raises AllProvidersRateLimited only if every provider returns 429."""
+    """Run the configured provider chain in order. Returns the first
+    successful result. Falls through on ANY failure (bad JSON, network,
+    rate-limit) and tries the next provider. Returns None only if every
+    configured provider failed for non-rate-limit reasons; raises
+    AllProvidersRateLimited only if every configured provider returned 429.
+    """
     order = [p.strip() for p in settings.llm_provider_order.split(",") if p.strip()]
-    rl_count = 0
-    configured_count = 0
+    configured = 0
+    rate_limited = 0
     for name in order:
         fn = _PROVIDERS.get(name)
         if not fn:
             continue
+        # skip providers without their key — they'd noop anyway
+        if name == "gemini" and not settings.gemini_api_key:
+            continue
+        if name == "groq" and not settings.groq_api_key:
+            continue
+        if name == "openrouter" and not settings.openrouter_api_key:
+            continue
+        configured += 1
         try:
             result = fn(system, user)
         except AllProvidersRateLimited:
-            rl_count += 1
-            configured_count += 1
-            continue
-        if result is None:
-            # provider unconfigured (returned None pre-call) OR call failed cleanly
-            # we differentiate by checking key presence below
-            if name == "gemini" and not settings.gemini_api_key:
-                continue
-            if name == "groq" and not settings.groq_api_key:
-                continue
-            if name == "openrouter" and not settings.openrouter_api_key:
-                continue
-            configured_count += 1
-            # treat non-rate-limit None as final failure — propagate up
-            return None
-        configured_count += 1
-        return result
-    if configured_count and rl_count == configured_count:
+            rate_limited += 1
+            continue  # try next provider
+        if result is not None:
+            return result
+        # None = bad output from this provider; continue to next
+    if configured and rate_limited == configured:
         raise AllProvidersRateLimited()
     return None
