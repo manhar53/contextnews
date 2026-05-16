@@ -20,6 +20,7 @@ export default function Home() {
   const [q, setQ] = useState("");
   const [period, setPeriod] = useState("30d");
   const [lect, setLect] = useState(""); // "" | security | economic | social
+  const [stats, setStats] = useState(null); // owner-only
   const [items, setItems] = useState([]);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -93,8 +94,8 @@ export default function Home() {
     <div className="min-h-screen bg-bg text-text">
       <header className="sticky top-0 z-10 bg-bg border-b border-border">
         <div className="max-w-3xl mx-auto px-5 py-4">
-          <div className="flex items-center justify-between mb-3">
-            <div>
+          <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
+            <div className="min-w-0">
               <h1 className="text-xl font-bold">ContextNews</h1>
               {usage && (
                 <p className="text-xs text-muted">
@@ -104,7 +105,7 @@ export default function Home() {
                 </p>
               )}
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap justify-end">
               <button
                 onClick={refresh}
                 disabled={refreshing}
@@ -133,6 +134,21 @@ export default function Home() {
               >
                 Backfill
               </button>
+              {usage?.unlimited && (
+                <button
+                  onClick={async () => {
+                    try {
+                      setStats(await api.adminStats());
+                    } catch (e) {
+                      alert("Stats failed: " + e.message);
+                    }
+                  }}
+                  className="text-sm px-3 py-1.5 rounded-lg border border-border hover:border-accent"
+                  title="Owner-only operational stats"
+                >
+                  Stats
+                </button>
+              )}
               <button
                 onClick={() => navigate("/onboarding")}
                 className="text-sm px-3 py-1.5 rounded-lg border border-border hover:border-accent"
@@ -253,6 +269,84 @@ export default function Home() {
           </>
         )}
       </main>
+
+      {stats && (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-5"
+          onClick={() => setStats(null)}
+        >
+          <div
+            className="bg-surface border border-border rounded-xl max-w-md w-full p-5 text-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-bold">Operational stats</h2>
+              <button
+                onClick={() => setStats(null)}
+                className="text-muted hover:text-text"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-y-1 gap-x-3 mb-4">
+              <div className="text-muted">Users</div>
+              <div className="text-right">{stats.users}</div>
+              <div className="text-muted">Articles ingested</div>
+              <div className="text-right">{stats.articles}</div>
+              <div className="text-muted">Analyses total</div>
+              <div className="text-right">{stats.analyses_total}</div>
+              <div className="text-muted">Analyses last 24h</div>
+              <div className="text-right">{stats.analyses_24h}</div>
+              <div className="text-muted">Users at daily limit (today)</div>
+              <div className="text-right">{stats.users_at_daily_limit_today}</div>
+              <div className="text-muted">Daily limit / user</div>
+              <div className="text-right">{stats.daily_limit_per_user}</div>
+              <div className="text-muted">Auto-analyse / 30 min</div>
+              <div className="text-right">{stats.auto_analyse_per_run}</div>
+            </div>
+            <div className="mb-3">
+              <div className="text-muted text-xs mb-1">LLM providers today</div>
+              {stats.providers_today.length === 0 ? (
+                <div className="text-muted text-xs">No LLM calls yet today.</div>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead className="text-muted">
+                    <tr>
+                      <th className="text-left font-normal">provider</th>
+                      <th className="text-right font-normal">attempts</th>
+                      <th className="text-right font-normal">ok</th>
+                      <th className="text-right font-normal">429</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.providers_today.map((p) => (
+                      <tr key={p.provider}>
+                        <td>{p.provider}</td>
+                        <td className="text-right">{p.attempts}</td>
+                        <td className="text-right">{p.successes}</td>
+                        <td className="text-right">{p.rate_limits}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="text-xs text-muted">
+              Configured:&nbsp;
+              {["gemini", "groq", "openrouter"].map((k) => (
+                <span key={k} className="mr-2">
+                  {k} {stats.configured[k] ? "✓" : "✗"}
+                </span>
+              ))}
+            </div>
+            {stats.last_analysis_at && (
+              <div className="text-xs text-muted mt-1">
+                Last analysis: {new Date(stats.last_analysis_at).toLocaleString()}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

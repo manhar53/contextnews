@@ -1,21 +1,20 @@
-"""Gemini deep analysis with multi-model fallback + schema validation."""
-import json
+"""Deep article analysis: multi-provider LLM chain + schema validation."""
 import logging
 from typing import Any
 
-import google.generativeai as genai
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy.orm import Session
 
-from config import settings
 from context_service import build_historical_context
+from llm_service import AllProvidersRateLimited, generate_json
 from models import Analysis, Article
 
-logger = logging.getLogger("contextnews.gemini")
+logger = logging.getLogger("contextnews.analysis")
 
 
-class GeminiRateLimited(Exception):
-    """Raised only when every configured model returns a 429 quota error."""
+# Kept under the old name so existing callers (main.deep_analyze, auto_analyse)
+# don't need to change. Same meaning: every configured LLM returned 429.
+GeminiRateLimited = AllProvidersRateLimited
 
 
 SYSTEM_PROMPT = """You are an expert geopolitical analyst, defence affairs specialist, and current affairs educator with deep knowledge of Indian defence, foreign policy, and global events.
@@ -165,20 +164,6 @@ class GeminiPayload(BaseModel):
 
 # ---------- Gemini call with fallback (improvement #1) ----------
 
-_configured = False
-
-
-def _ensure_configured() -> bool:
-    global _configured
-    if not settings.gemini_api_key:
-        logger.warning("GEMINI_API_KEY not set; analysis unavailable.")
-        return False
-    if not _configured:
-        genai.configure(api_key=settings.gemini_api_key)
-        _configured = True
-    return True
-
-
 def _user_content(db: Session, article: Article) -> str:
     return (
         f"HEADLINE: {article.headline}\n"
@@ -192,73 +177,31 @@ def _user_content(db: Session, article: Article) -> str:
     )
 
 
-def _is_rate_limit(exc: Exception) -> bool:
-    name = type(exc).__name__
-    return name in {"ResourceExhausted", "TooManyRequests"} or "429" in str(exc)
-
-
-def _models() -> list[str]:
-    chain = [settings.gemini_model]
-    if settings.gemini_fallback_model and settings.gemini_fallback_model not in chain:
-        chain.append(settings.gemini_fallback_model)
-    return chain
-
-
-def _try_models(content: str) -> tuple[dict | None, bool]:
-    """One pass over the model chain. Returns (payload|None, all_rate_limited)."""
-    all_rate_limited = True
-    for model_name in _models():
-        try:
-            model = genai.GenerativeModel(
-                model_name=model_name,
-                system_instruction=SYSTEM_PROMPT,
-                generation_config={
-                    "response_mime_type": "application/json",
-                    "temperature": 0.4,
-                },
-            )
-            resp = model.generate_content(content)
-            return json.loads(resp.text), False
-        except json.JSONDecodeError as exc:
-            logger.error("Model %s returned non-JSON: %s", model_name, exc)
-            all_rate_limited = False
-            continue
-        except Exception as exc:  # noqa: BLE001
-            if _is_rate_limit(exc):
-                logger.warning("Model %s rate-limited.", model_name)
-                continue
-            logger.error("Model %s failed: %s", model_name, exc)
-            all_rate_limited = False
-            continue
-    return None, all_rate_limited
-
-
 def _generate(db: Session, article: Article) -> dict | None:
-    """Try the model chain; on a full rate-limit, auto-retry once after a
-    short backoff so users don't have to manually retry."""
+    """Run the configured LLM provider chain. Auto-retries once after backoff
+    if every provider returned 429."""
     import time
 
     content = _user_content(db, article)
     for attempt in (1, 2):
-        payload, all_rl = _try_models(content)
-        if payload is not None:
-            return payload
-        if not all_rl:
-            return None  # a non-rate-limit failure — don't burn time retrying
-        if attempt == 1:
-            logger.warning("All models rate-limited; backing off 8s then retrying.")
-            time.sleep(8)
-    raise GeminiRateLimited()
+        try:
+            payload = generate_json(SYSTEM_PROMPT, content)
+        except AllProvidersRateLimited:
+            if attempt == 1:
+                logger.warning("All LLM providers rate-limited; backing off 8s.")
+                time.sleep(8)
+                continue
+            raise
+        return payload  # dict on success, None on non-rate-limit failure
+    return None
 
 
 def analyze_article(db: Session, article: Article) -> Analysis | None:
     """Return cached analysis, or generate + validate + persist a new one."""
     if article.analysis:
         return article.analysis
-    if not _ensure_configured():
-        return None
 
-    raw = _generate(db, article)  # may raise GeminiRateLimited
+    raw = _generate(db, article)  # may raise AllProvidersRateLimited (alias)
     if raw is None:
         return None
 

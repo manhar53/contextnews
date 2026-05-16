@@ -120,6 +120,20 @@ class ArticleContext(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class LLMUsage(Base):
+    """Daily per-provider counters for visibility (attempts/successes/429s)."""
+
+    __tablename__ = "llm_usage"
+    __table_args__ = (UniqueConstraint("provider", "usage_date_ist", name="uq_llm_day"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    provider = Column(String, nullable=False, index=True)   # gemini|groq|openrouter
+    usage_date_ist = Column(Date, nullable=False, index=True)
+    attempts = Column(Integer, default=0)
+    successes = Column(Integer, default=0)
+    rate_limits = Column(Integer, default=0)
+
+
 class AnalysisUsage(Base):
     __tablename__ = "analysis_usage"
     __table_args__ = (UniqueConstraint("user_id", "usage_date_ist", name="uq_user_day"),)

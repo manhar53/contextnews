@@ -8,6 +8,13 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
     gemini_fallback_model: str = "gemini-flash-latest"
+    # Additional free LLM providers used as fallbacks when Gemini is exhausted.
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.3-70b-versatile"
+    openrouter_api_key: str = ""
+    openrouter_model: str = "meta-llama/llama-3.3-70b-instruct:free"
+    # Provider order (csv). Each runs only if its key is configured.
+    llm_provider_order: str = "gemini,groq,openrouter"
     feed_cache_ttl_seconds: int = 120
     gdelt_backfill_months: int = 12
     gdelt_backfill_max_per_query: int = 60
@@ -25,7 +32,7 @@ class Settings(BaseSettings):
     # Background auto-analysis of "important" SSB topics (no user / no quota).
     auto_analyse_enabled: bool = True
     auto_analyse_interval_minutes: int = 30
-    auto_analyse_per_run: int = 3
+    auto_analyse_per_run: int = 8
 
     # Comma-separated origins allowed by CORS. Override via ALLOWED_ORIGINS env.
     allowed_origins: str = (

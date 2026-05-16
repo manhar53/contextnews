@@ -55,6 +55,7 @@ export const api = {
   getNewsDetail: (id) => req(`/api/news/${id}`),
   analyze: (id) => req(`/api/news/${id}/analyze`, { method: "POST" }),
   usage: () => req("/api/usage"),
+  adminStats: () => req("/api/admin/stats"),
   refreshNews: () => req("/api/news/refresh", { method: "POST" }),
   backfill: () => req("/api/news/backfill", { method: "POST" }),
   signalClick: (id) => req(`/api/news/${id}/click`, { method: "POST" }),

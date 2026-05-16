@@ -68,11 +68,11 @@ export default function NewsDetail() {
   return (
     <div className="min-h-screen bg-bg text-text">
       <div className="max-w-3xl mx-auto px-5 py-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-y-2">
           <Link to="/" className="text-accent text-sm">
             ← Back to feed
           </Link>
-          <div className="flex items-center gap-2 print:hidden">
+          <div className="flex items-center gap-2 print:hidden flex-wrap">
             <button
               onClick={() => {
                 setVote("up");

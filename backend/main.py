@@ -607,6 +607,74 @@ def usage(
     )
 
 
+@app.get("/api/admin/stats")
+def admin_stats(
+    user: models.User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """Owner-only operational snapshot — users, analyses, LLM provider health."""
+    if not _is_owner(user):
+        raise HTTPException(status_code=403, detail="Owner only")
+    from sqlalchemy import func
+
+    from auth import ist_today
+
+    today = ist_today()
+    users_total = db.query(func.count(models.User.id)).scalar() or 0
+    articles_total = db.query(func.count(models.Article.id)).scalar() or 0
+    analyses_total = db.query(func.count(models.Analysis.id)).scalar() or 0
+    since = datetime.utcnow() - timedelta(hours=24)
+    analyses_24h = (
+        db.query(func.count(models.Analysis.id))
+        .filter(models.Analysis.created_at >= since)
+        .scalar()
+        or 0
+    )
+    users_at_limit = (
+        db.query(func.count(models.AnalysisUsage.id))
+        .filter(
+            models.AnalysisUsage.usage_date_ist == today,
+            models.AnalysisUsage.count >= settings.daily_analysis_limit,
+        )
+        .scalar()
+        or 0
+    )
+    provider_rows = (
+        db.query(models.LLMUsage)
+        .filter(models.LLMUsage.usage_date_ist == today)
+        .all()
+    )
+    providers_today = [
+        {
+            "provider": r.provider,
+            "attempts": r.attempts or 0,
+            "successes": r.successes or 0,
+            "rate_limits": r.rate_limits or 0,
+        }
+        for r in provider_rows
+    ]
+    last = (
+        db.query(models.Analysis)
+        .order_by(models.Analysis.created_at.desc())
+        .first()
+    )
+    return {
+        "users": users_total,
+        "articles": articles_total,
+        "analyses_total": analyses_total,
+        "analyses_24h": analyses_24h,
+        "users_at_daily_limit_today": users_at_limit,
+        "providers_today": providers_today,
+        "last_analysis_at": last.created_at.isoformat() if last else None,
+        "configured": {
+            "gemini": bool(settings.gemini_api_key),
+            "groq": bool(settings.groq_api_key),
+            "openrouter": bool(settings.openrouter_api_key),
+        },
+        "daily_limit_per_user": settings.daily_analysis_limit,
+        "auto_analyse_per_run": settings.auto_analyse_per_run,
+    }
+
+
 def _record_signal(db: Session, user_id: int, article_id: int, kind: str):
     a = db.query(models.Article).filter(models.Article.id == article_id).first()
     if not a:
