@@ -10,6 +10,7 @@ const TABS = [
   { key: "defence", label: "Defence Specific" },
   { key: "personalised", label: "Personalised For You" },
   { key: "lecturette", label: "Lecturette Prep" },
+  { key: "gd", label: "GD Prep" },
 ];
 const PAGE = 20;
 
@@ -29,6 +30,13 @@ export default function Home() {
   const [lectSummary, setLectSummary] = useState(null);     // {content, generated_at}|null
   const [lectGenLoading, setLectGenLoading] = useState(false);
   const [lectGenError, setLectGenError] = useState("");
+  // GD Prep (parallel state for the GD tab)
+  const [gdSlug, setGdSlug] = useState(null);
+  const [gdItems, setGdItems] = useState([]);
+  const [gdLoading, setGdLoading] = useState(false);
+  const [gdSummary, setGdSummary] = useState(null);
+  const [gdGenLoading, setGdGenLoading] = useState(false);
+  const [gdGenError, setGdGenError] = useState("");
   const [items, setItems] = useState([]);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -59,7 +67,7 @@ export default function Home() {
 
   // reset feed when tab, query, period or lecturette filter changes
   useEffect(() => {
-    if (tab === "lecturette") return; // lecturette tab has its own loaders
+    if (tab === "lecturette" || tab === "gd") return; // those tabs have their own loaders
     setItems([]);
     setOffset(0);
     setMore(true);
@@ -67,13 +75,16 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, q, period, lect]);
 
-  // Switching INTO lecturette tab: load topic list once; reset drill-down.
+  // Switching INTO lecturette OR gd tab: load AFPA topic list once (shared);
+  // reset both drill-downs.
   useEffect(() => {
-    if (tab !== "lecturette") {
+    if (tab !== "lecturette" && tab !== "gd") {
       setLectSlug(null);
+      setGdSlug(null);
       return;
     }
     setLectSlug(null);
+    setGdSlug(null);
     if (lectTopics === null) {
       setLectLoading(true);
       api
@@ -118,6 +129,42 @@ export default function Home() {
       setLectGenError(e.message);
     } finally {
       setLectGenLoading(false);
+    }
+  };
+
+  // GD drill-down: load articles + cached GD brief in parallel.
+  useEffect(() => {
+    if (!gdSlug) {
+      setGdSummary(null);
+      setGdGenError("");
+      return;
+    }
+    setGdLoading(true);
+    setGdItems([]);
+    setGdSummary(null);
+    setGdGenError("");
+    api
+      .lecturetteArticles(gdSlug, { limit: 30 })
+      .then(setGdItems)
+      .catch(() => setGdItems([]))
+      .finally(() => setGdLoading(false));
+    api
+      .gdTopicSummary(gdSlug)
+      .then((s) => setGdSummary(s?.content ? s : null))
+      .catch(() => setGdSummary(null));
+  }, [gdSlug]);
+
+  const generateGD = async () => {
+    if (!gdSlug) return;
+    setGdGenLoading(true);
+    setGdGenError("");
+    try {
+      const r = await api.gdTopicGenerate(gdSlug);
+      setGdSummary(r);
+    } catch (e) {
+      setGdGenError(e.message);
+    } finally {
+      setGdGenLoading(false);
     }
   };
 
@@ -352,6 +399,19 @@ export default function Home() {
             onGenerate={generateLecturette}
             onPick={setLectSlug}
             onBack={() => setLectSlug(null)}
+          />
+        ) : tab === "gd" ? (
+          <GDPane
+            loading={gdLoading}
+            topics={lectTopics || []}
+            slug={gdSlug}
+            articles={gdItems}
+            summary={gdSummary}
+            genLoading={gdGenLoading}
+            genError={gdGenError}
+            onGenerate={generateGD}
+            onPick={setGdSlug}
+            onBack={() => setGdSlug(null)}
           />
         ) : loading ? (
           <div className="grid gap-3 md:grid-cols-2">
@@ -595,6 +655,159 @@ function LecturettePane({
       <h2 className="text-lg font-bold mb-1">SSB Lecturette / GD topics</h2>
       <p className="text-muted text-xs mb-4">
         Curated AFPA topic set. Click one to see matching articles (deep-analysed first).
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {topics.map((t) => (
+          <button
+            key={t.slug}
+            onClick={() => onPick(t.slug)}
+            className="text-left p-3 border border-border rounded-lg hover:border-accent flex items-center justify-between gap-3"
+          >
+            <span className="font-medium truncate">{t.name}</span>
+            <span className="text-xs text-muted shrink-0 whitespace-nowrap">
+              {t.analysed}/{t.total}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+function GDPane({
+  loading,
+  topics,
+  slug,
+  articles,
+  summary,
+  genLoading,
+  genError,
+  onGenerate,
+  onPick,
+  onBack,
+}) {
+  if (slug) {
+    const t = topics.find((x) => x.slug === slug);
+    const c = summary?.content;
+    return (
+      <div>
+        <button onClick={onBack} className="text-accent text-sm mb-3">
+          ← All topics
+        </button>
+        <h2 className="text-lg font-bold mb-4">{t?.name || slug}</h2>
+
+        <section className="mb-6 bg-surface2 border border-border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+            <h3 className="font-bold">GD brief — pro vs against</h3>
+            <div className="flex items-center gap-3 text-xs text-muted">
+              {summary?.generated_at && (
+                <span>generated {new Date(summary.generated_at).toLocaleString()}</span>
+              )}
+              <button
+                onClick={onGenerate}
+                disabled={genLoading}
+                className="px-3 py-1 rounded-lg border border-border hover:border-accent disabled:opacity-50"
+              >
+                {genLoading ? "Synthesising…" : c ? "Regenerate" : "Generate"}
+              </button>
+            </div>
+          </div>
+          {genError && <p className="text-impactHigh text-xs mb-2">{genError}</p>}
+          {!c ? (
+            <p className="text-muted text-sm">
+              Not generated yet. Click <b>Generate</b> — synthesises balanced pro and against arguments across the latest analysed articles.
+            </p>
+          ) : (
+            <div className="text-sm space-y-4">
+              {c.topic_overview && <p className="text-text/90">{c.topic_overview}</p>}
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="bg-surface border border-impactLow/40 rounded-lg p-3">
+                  <div className="text-xs font-semibold text-impactLow mb-2">PRO — arguments FOR</div>
+                  <ul className="space-y-2">
+                    {(c.pro_points || []).map((p, i) => (
+                      <li key={i}>
+                        <div className="font-medium">{typeof p === "string" ? p : p.point}</div>
+                        {typeof p === "object" && p.evidence && (
+                          <div className="text-xs text-muted">↳ {p.evidence}</div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="bg-surface border border-impactHigh/40 rounded-lg p-3">
+                  <div className="text-xs font-semibold text-impactHigh mb-2">AGAINST — counter arguments</div>
+                  <ul className="space-y-2">
+                    {(c.against_points || []).map((p, i) => (
+                      <li key={i}>
+                        <div className="font-medium">{typeof p === "string" ? p : p.point}</div>
+                        {typeof p === "object" && p.evidence && (
+                          <div className="text-xs text-muted">↳ {p.evidence}</div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+              {c.balanced_conclusion && (
+                <div>
+                  <div className="text-xs text-muted mb-1">Balanced conclusion</div>
+                  <p>{c.balanced_conclusion}</p>
+                </div>
+              )}
+              {Array.isArray(c.key_facts) && c.key_facts.length > 0 && (
+                <div>
+                  <div className="text-xs text-muted mb-1">Key facts</div>
+                  <ul className="list-disc list-inside space-y-1">
+                    {c.key_facts.map((f, i) => (<li key={i}>{f}</li>))}
+                  </ul>
+                </div>
+              )}
+              {Array.isArray(c.key_terms) && c.key_terms.length > 0 && (
+                <div>
+                  <div className="text-xs text-muted mb-1">Key terms</div>
+                  <ul className="space-y-1">
+                    {c.key_terms.map((kt, i) => (
+                      <li key={i}>
+                        <span className="font-semibold">{typeof kt === "string" ? kt : kt.term}</span>
+                        {typeof kt === "object" && kt.definition && (
+                          <span className="text-muted"> — {kt.definition}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <p className="text-xs text-muted">
+                Synthesised from {summary?.article_count ?? "recent"} articles
+              </p>
+            </div>
+          )}
+        </section>
+
+        <h3 className="font-semibold text-sm text-muted mb-2">
+          Source articles (analysed first)
+        </h3>
+        {loading ? (
+          <p className="text-muted text-sm">Loading topic articles…</p>
+        ) : articles.length === 0 ? (
+          <p className="text-muted text-sm">No recent articles match this topic yet.</p>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            {articles.map((a) => (<NewsCard key={a.id} article={a} />))}
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (loading && topics.length === 0) {
+    return <p className="text-muted text-sm">Loading topics…</p>;
+  }
+  return (
+    <div>
+      <h2 className="text-lg font-bold mb-1">SSB Group Discussion topics</h2>
+      <p className="text-muted text-xs mb-4">
+        Same AFPA topic set. Click one to see balanced pro/against arguments + articles.
       </p>
       <div className="grid gap-2 sm:grid-cols-2">
         {topics.map((t) => (

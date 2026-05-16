@@ -967,6 +967,123 @@ def lecturette_topic_generate(
     }
 
 
+_TOPIC_GD_SYSTEM = """You are an expert SSB Group Discussion coach. For the supplied topic, produce balanced GD-ready arguments so a candidate can defend either side or balance the discussion. Use the recent news articles as factual grounding — do not fabricate evidence.
+
+Respond ONLY with valid JSON, exactly these fields:
+{
+  "topic_overview": "string (3-4 sentences setting context)",
+  "pro_points": [
+    {"point": "concise argument FOR/supporting the proposition", "evidence": "one-line factual basis"}
+  ],
+  "against_points": [
+    {"point": "concise argument AGAINST/critiquing the proposition", "evidence": "one-line factual basis"}
+  ],
+  "balanced_conclusion": "string (one sentence the candidate can use to balance the discussion)",
+  "key_facts": ["short factual bullet", "..."],
+  "key_terms": [{"term": "string", "definition": "one-line"}]
+}
+Give 4-5 pro_points and 4-5 against_points. Strongest arguments on each side — no strawmen. Crisp speakable sentences, neutral tone."""
+
+
+@app.get("/api/gd/topics/{slug}/summary")
+def gd_topic_summary(
+    slug: str,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    row = db.query(models.TopicGD).filter(models.TopicGD.slug == slug).first()
+    if not row:
+        return {"slug": slug, "content": None, "generated_at": None}
+    return {
+        "slug": slug,
+        "name": row.name,
+        "content": row.content,
+        "generated_at": row.generated_at.replace(tzinfo=timezone.utc).isoformat(),
+        "article_count": len(row.article_ids or []),
+    }
+
+
+@app.post("/api/gd/topics/{slug}/generate")
+def gd_topic_generate(
+    slug: str,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Synthesise a balanced GD brief (pro + against) for this topic."""
+    from llm_service import AllProvidersRateLimited, generate_json
+    from topics import TOPICS_BY_SLUG
+
+    t = TOPICS_BY_SLUG.get(slug)
+    if not t:
+        raise HTTPException(status_code=404, detail="Unknown topic")
+
+    existing = db.query(models.TopicGD).filter(models.TopicGD.slug == slug).first()
+    if existing and (datetime.utcnow() - existing.generated_at) < timedelta(hours=12):
+        return {
+            "slug": slug,
+            "name": existing.name,
+            "content": existing.content,
+            "generated_at": existing.generated_at.replace(tzinfo=timezone.utc).isoformat(),
+            "cached": True,
+        }
+
+    cond = _topic_keyword_filter(t["keywords"])
+    cutoff = datetime.utcnow() - timedelta(days=180)
+    articles = (
+        db.query(models.Article)
+        .outerjoin(models.Analysis, models.Analysis.article_id == models.Article.id)
+        .filter(cond)
+        .filter(models.Article.published_at >= cutoff)
+        .filter(models.Article.origin != "gdelt")
+        .order_by(
+            models.Analysis.id.is_(None).asc(),
+            models.Article.published_at.desc().nullslast(),
+            models.Article.source_priority.desc(),
+        )
+        .limit(8)
+        .all()
+    )
+    if not articles:
+        raise HTTPException(
+            status_code=404,
+            detail="No recent articles for this topic yet — try again after the next news fetch.",
+        )
+
+    user_content = _topic_lecturette_input(t["name"], articles)
+    try:
+        payload = generate_json(_TOPIC_GD_SYSTEM, user_content)
+    except AllProvidersRateLimited:
+        raise HTTPException(
+            status_code=429,
+            detail="All LLM providers are rate-limited right now. Try again in ~30s.",
+        )
+    if payload is None:
+        raise HTTPException(status_code=502, detail="GD brief generation failed.")
+
+    if existing:
+        existing.content = payload
+        existing.article_ids = [a.id for a in articles]
+        existing.generated_at = datetime.utcnow()
+        existing.name = t["name"]
+    else:
+        db.add(
+            models.TopicGD(
+                slug=slug,
+                name=t["name"],
+                content=payload,
+                article_ids=[a.id for a in articles],
+            )
+        )
+    db.commit()
+    return {
+        "slug": slug,
+        "name": t["name"],
+        "content": payload,
+        "generated_at": datetime.utcnow().replace(tzinfo=timezone.utc).isoformat(),
+        "cached": False,
+    }
+
+
 @app.get("/api/lecturette/topics/{slug}", response_model=list[schemas.ArticleOut])
 def lecturette_topic_articles(
     slug: str,

@@ -132,6 +132,22 @@ class TopicLecturette(Base):
     generated_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
+class TopicGD(Base):
+    """Synthesized Group-Discussion brief per AFPA topic (cached, shared).
+
+    Structured PRO arguments + AGAINST arguments so a candidate can defend
+    either side or balance the discussion.
+    """
+
+    __tablename__ = "topic_gd"
+
+    slug = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    content = Column(JSON, default=dict)
+    article_ids = Column(JSON, default=list)
+    generated_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class LLMUsage(Base):
     """Daily per-provider counters for visibility (attempts/successes/429s)."""
 

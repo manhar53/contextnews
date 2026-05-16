@@ -64,6 +64,9 @@ export const api = {
     req(`/api/lecturette/topics/${slug}/summary`),
   lecturetteTopicGenerate: (slug) =>
     req(`/api/lecturette/topics/${slug}/generate`, { method: "POST" }),
+  gdTopicSummary: (slug) => req(`/api/gd/topics/${slug}/summary`),
+  gdTopicGenerate: (slug) =>
+    req(`/api/gd/topics/${slug}/generate`, { method: "POST" }),
   refreshNews: () => req("/api/news/refresh", { method: "POST" }),
   backfill: () => req("/api/news/backfill", { method: "POST" }),
   signalClick: (id) => req(`/api/news/${id}/click`, { method: "POST" }),
