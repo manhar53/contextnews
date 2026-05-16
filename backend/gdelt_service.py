@@ -123,7 +123,7 @@ def get_events(headline: str, top: int = 5, months: int = 60) -> list[dict]:
         "sort": "datedesc",
     }
     try:
-        resp = httpx.get(GDELT_DOC_URL, params=params, timeout=20)
+        resp = httpx.get(GDELT_DOC_URL, params=params, timeout=12)
         resp.raise_for_status()
         articles = resp.json().get("articles", [])
     except (httpx.HTTPError, ValueError) as exc:

@@ -57,6 +57,7 @@ export const api = {
   refreshNews: () => req("/api/news/refresh", { method: "POST" }),
   backfill: () => req("/api/news/backfill", { method: "POST" }),
   signalClick: (id) => req(`/api/news/${id}/click`, { method: "POST" }),
+  signalUp: (id) => req(`/api/news/${id}/upvote`, { method: "POST" }),
   signalDown: (id) => req(`/api/news/${id}/feedback`, { method: "POST" }),
   exportAnalysis: async (id) => {
     const res = await fetch(`${BASE}/api/news/${id}/export`, {

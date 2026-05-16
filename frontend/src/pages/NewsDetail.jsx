@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
 import Timeline from "../components/Timeline.jsx";
 import ImpactTag from "../components/ImpactTag.jsx";
@@ -13,7 +13,7 @@ const RELEVANCE_COLOR = {
 
 export default function NewsDetail() {
   const { id } = useParams();
-  const navigate = useNavigate();
+  const [vote, setVote] = useState(null); // 'up' | 'down'
   const [article, setArticle] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -72,19 +72,34 @@ export default function NewsDetail() {
           <Link to="/" className="text-accent text-sm">
             ← Back to feed
           </Link>
-          <button
-            onClick={async () => {
-              try {
-                await api.signalDown(id);
-                navigate("/", { replace: true });
-              } catch (e) {
-                setError(e.message);
-              }
-            }}
-            className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted hover:border-impactHigh hover:text-impactHigh print:hidden"
-          >
-            👎 Not relevant
-          </button>
+          <div className="flex items-center gap-2 print:hidden">
+            <button
+              onClick={() => {
+                setVote("up");
+                api.signalUp(id).catch(() => setVote(null));
+              }}
+              className={`text-xs px-3 py-1.5 rounded-lg border ${
+                vote === "up"
+                  ? "border-impactLow text-impactLow"
+                  : "border-border text-muted hover:text-impactLow"
+              }`}
+            >
+              👍 Helpful
+            </button>
+            <button
+              onClick={() => {
+                setVote("down");
+                api.signalDown(id).catch(() => setVote(null));
+              }}
+              className={`text-xs px-3 py-1.5 rounded-lg border ${
+                vote === "down"
+                  ? "border-impactHigh text-impactHigh"
+                  : "border-border text-muted hover:text-impactHigh"
+              }`}
+            >
+              👎 Not relevant
+            </button>
+          </div>
         </div>
 
         <div className="mt-4 flex items-start justify-between gap-3">

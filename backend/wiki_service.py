@@ -86,7 +86,7 @@ def fetch_summary(entity: str) -> dict | None:
         resp = httpx.get(
             SUMMARY_URL.format(quote(entity.replace(" ", "_"))),
             headers=HEADERS,
-            timeout=12,
+            timeout=8,
             follow_redirects=True,
         )
         if resp.status_code != 200:

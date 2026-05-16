@@ -189,9 +189,8 @@ def _models() -> list[str]:
     return chain
 
 
-def _generate(db: Session, article: Article) -> dict | None:
-    """Try each model in order. Raise GeminiRateLimited only if ALL are 429."""
-    content = _user_content(db, article)
+def _try_models(content: str) -> tuple[dict | None, bool]:
+    """One pass over the model chain. Returns (payload|None, all_rate_limited)."""
     all_rate_limited = True
     for model_name in _models():
         try:
@@ -204,21 +203,37 @@ def _generate(db: Session, article: Article) -> dict | None:
                 },
             )
             resp = model.generate_content(content)
-            return json.loads(resp.text)
+            return json.loads(resp.text), False
         except json.JSONDecodeError as exc:
             logger.error("Model %s returned non-JSON: %s", model_name, exc)
             all_rate_limited = False
             continue
         except Exception as exc:  # noqa: BLE001
             if _is_rate_limit(exc):
-                logger.warning("Model %s rate-limited; trying next.", model_name)
+                logger.warning("Model %s rate-limited.", model_name)
                 continue
             logger.error("Model %s failed: %s", model_name, exc)
             all_rate_limited = False
             continue
-    if all_rate_limited:
-        raise GeminiRateLimited()
-    return None
+    return None, all_rate_limited
+
+
+def _generate(db: Session, article: Article) -> dict | None:
+    """Try the model chain; on a full rate-limit, auto-retry once after a
+    short backoff so users don't have to manually retry."""
+    import time
+
+    content = _user_content(db, article)
+    for attempt in (1, 2):
+        payload, all_rl = _try_models(content)
+        if payload is not None:
+            return payload
+        if not all_rl:
+            return None  # a non-rate-limit failure — don't burn time retrying
+        if attempt == 1:
+            logger.warning("All models rate-limited; backing off 8s then retrying.")
+            time.sleep(8)
+    raise GeminiRateLimited()
 
 
 def analyze_article(db: Session, article: Article) -> Analysis | None:

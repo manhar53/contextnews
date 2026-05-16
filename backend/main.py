@@ -221,27 +221,55 @@ def _to_card(a: models.Article) -> schemas.ArticleOut:
 
 
 def _user_affinity(db: Session, user_id: int):
-    """Layer 3: clicks/downs aggregated per category, plus downvoted article ids."""
+    """Per-user category leanings from this user's own clicks/ups/downs.
+
+    No content is hidden — these only gently personalise ordering.
+    """
     rows = (
         db.query(models.UserSignal.category, models.UserSignal.kind)
         .filter(models.UserSignal.user_id == user_id)
         .all()
     )
-    clicks: dict[str, int] = {}
-    downs: dict[str, int] = {}
+    likes: dict[str, int] = {}
+    dislikes: dict[str, int] = {}
     for cat, kind in rows:
-        bucket = clicks if kind == "click" else downs
-        bucket[cat or ""] = bucket.get(cat or "", 0) + 1
-    down_ids = {
-        s.article_id
-        for s in db.query(models.UserSignal.article_id)
-        .filter(
-            models.UserSignal.user_id == user_id,
-            models.UserSignal.kind == "down",
+        if kind in ("click", "up"):
+            likes[cat or ""] = likes.get(cat or "", 0) + 1
+        elif kind == "down":
+            dislikes[cat or ""] = dislikes.get(cat or "", 0) + 1
+    return likes, dislikes
+
+
+def _crowd_scores(db: Session, ids: list[int]) -> dict[int, float]:
+    """Aggregate everyone's votes per article -> a global ranking nudge.
+
+    Mass review, not one person's tap: up = strong +, click = mild +,
+    down = strong -. Applied to the feed for all users.
+    """
+    if not ids:
+        return {}
+    from sqlalchemy import func
+
+    rows = (
+        db.query(
+            models.UserSignal.article_id,
+            models.UserSignal.kind,
+            func.count().label("n"),
         )
+        .filter(models.UserSignal.article_id.in_(ids))
+        .group_by(models.UserSignal.article_id, models.UserSignal.kind)
         .all()
-    }
-    return clicks, downs, down_ids
+    )
+    agg: dict[int, dict[str, int]] = {}
+    for aid, kind, n in rows:
+        agg.setdefault(aid, {})[kind] = n
+    out: dict[int, float] = {}
+    for aid, k in agg.items():
+        net = k.get("up", 0) - k.get("down", 0)
+        score = 6.0 * net + 0.25 * k.get("click", 0)
+        # Bounded so a brigade can't fully hijack or bury relevance.
+        out[aid] = max(-30.0, min(30.0, score))
+    return out
 
 
 _PERIOD_DAYS = {"24h": 1, "7d": 7, "30d": 30, "90d": 90, "1y": 365}
@@ -372,24 +400,25 @@ def list_news(
         .limit(600)
         .all()
     )
+    # Crowd score: everyone's aggregated votes nudge the feed for all users.
+    crowd = _crowd_scores(db, [a.id for a in pool])
 
     if tab == "personalised":
-        clicks, downs, down_ids = _user_affinity(db, user.id)
-        pool = [a for a in pool if a.id not in down_ids]
-
+        likes, dislikes = _user_affinity(db, user.id)
         weak = set(p.weak_areas or [])
 
         def aff(a: models.Article) -> float:
             c = a.category or ""
-            return 1.5 * clicks.get(c, 0) - 1.0 * downs.get(c, 0)
+            # mild personal lean; nothing is hidden
+            return 1.0 * likes.get(c, 0) - 0.5 * dislikes.get(c, 0)
 
         # Weak areas form a priority tier: matching topics float to the top,
-        # still relevance-ordered within each tier.
+        # still relevance + crowd ordered within each tier.
         ranked = sorted(
             pool,
             key=lambda a: (
                 _weak_match(a, weak),
-                _relevance(a, aff(a)),
+                _relevance(a, aff(a)) + crowd.get(a.id, 0.0),
                 a.published_at or datetime.min,
             ),
             reverse=True,
@@ -398,7 +427,10 @@ def list_news(
 
     ranked = sorted(
         pool,
-        key=lambda a: (_relevance(a), a.published_at or datetime.min),
+        key=lambda a: (
+            _relevance(a) + crowd.get(a.id, 0.0),
+            a.published_at or datetime.min,
+        ),
         reverse=True,
     )
     result = [_to_card(a) for a in ranked[offset : offset + limit]]
@@ -541,13 +573,25 @@ def signal_click(
     return {"ok": True}
 
 
+@app.post("/api/news/{article_id}/upvote")
+def signal_upvote(
+    article_id: int,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Thumbs-up — a positive crowd vote (nothing is hidden/removed)."""
+    _record_signal(db, user.id, article_id, "up")
+    return {"ok": True}
+
+
 @app.post("/api/news/{article_id}/feedback")
 def signal_feedback(
     article_id: int,
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Layer 3: thumbs-down — hide this article and down-weight its category."""
+    """Thumbs-down — a negative crowd vote. Content is NOT removed for anyone;
+    it only lowers the article's aggregate ranking score."""
     _record_signal(db, user.id, article_id, "down")
     return {"ok": True}
 

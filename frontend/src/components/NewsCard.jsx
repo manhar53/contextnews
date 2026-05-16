@@ -19,15 +19,15 @@ function oneLine(text) {
 }
 
 export default function NewsCard({ article }) {
-  const [dismissed, setDismissed] = useState(false);
+  const [vote, setVote] = useState(null); // 'up' | 'down' | null
 
-  if (dismissed) return null;
-
-  const down = async (e) => {
+  const cast = (kind) => (e) => {
     e.preventDefault();
     e.stopPropagation();
-    setDismissed(true);
-    api.signalDown(article.id).catch(() => setDismissed(false));
+    const prev = vote;
+    setVote(kind); // optimistic; nothing is hidden
+    const call = kind === "up" ? api.signalUp : api.signalDown;
+    call(article.id).catch(() => setVote(prev));
   };
 
   return (
@@ -40,9 +40,22 @@ export default function NewsCard({ article }) {
         <div className="flex items-center gap-2 shrink-0">
           <ImpactTag level={article.impact_level} />
           <button
-            onClick={down}
+            onClick={cast("up")}
+            title="Helpful"
+            className={`text-xs ${
+              vote === "up" ? "text-impactLow" : "text-muted hover:text-impactLow"
+            }`}
+          >
+            👍
+          </button>
+          <button
+            onClick={cast("down")}
             title="Not relevant"
-            className="text-muted hover:text-impactHigh text-xs"
+            className={`text-xs ${
+              vote === "down"
+                ? "text-impactHigh"
+                : "text-muted hover:text-impactHigh"
+            }`}
           >
             👎
           </button>
