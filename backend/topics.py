@@ -19,9 +19,9 @@ IMPORTANT_TOPICS: dict[str, list[str]] = {
     ],
     "Indo-China Relations": [
         "india china", "india-china", "china india", "china-india",
-        "lac", "ladakh", "galwan", "doklam", "tawang", "arunachal pradesh",
-        "border talks", "xi jinping india", "modi xi", "xi modi",
-    ],
+        "ladakh", "galwan", "doklam", "tawang", "arunachal pradesh",
+        "india china border", "modi xi", "xi modi",
+    ],   # 'lac' / 'border talks' dropped: false-positive on 'rep_lac_e' etc.
     "Indo-Bangladesh Relations": [
         "bangladesh india", "india bangladesh", "india-bangladesh",
         "bangladesh-india", "dhaka delhi", "delhi dhaka",
@@ -66,7 +66,7 @@ IMPORTANT_TOPICS: dict[str, list[str]] = {
     "Arms Race": ["arms race", "hypersonic", "icbm"],
     "Indian Democracy / Constitution": ["constitutional reform", "indian democracy", "supreme court of india"],
     "Climate / Environment Strategic": ["cop28", "cop29", "climate change", "net zero", "renewable energy india"],
-    "South China Sea": ["south china sea", "scs"],
+    "South China Sea": ["south china sea"],
     "West Asia Crisis": ["west asia", "middle east crisis"],
 }
 
