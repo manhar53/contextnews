@@ -8,14 +8,14 @@ export default function ImpactTag({ level }) {
   const key = (level || "").toLowerCase();
   if (!STYLES[key]) {
     return (
-      <span className="text-[11px] px-2 py-0.5 rounded-full border border-border text-muted">
+      <span className="text-[11px] px-2 py-0.5 rounded border border-border text-muted">
         Unanalysed
       </span>
     );
   }
   return (
     <span
-      className={`text-[11px] px-2 py-0.5 rounded-full border font-medium capitalize ${STYLES[key]}`}
+      className={`text-[11px] px-2 py-0.5 rounded border font-medium capitalize ${STYLES[key]}`}
     >
       {key} impact
     </span>

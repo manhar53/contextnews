@@ -202,6 +202,28 @@ def save_preferences(
 DEFENCE_CATEGORIES = {"defence", "geopolitics"}
 
 
+# Lecturette buckets: security / economic / social (SSB lecturette themes).
+_SES_BY_CATEGORY = {
+    "defence": "security",
+    "geopolitics": "security",
+    "economy": "economic",
+    "india": "social",
+    "government": "social",
+    "general": "social",
+}
+
+
+def _ses(a: models.Article) -> str:
+    """Precise Gemini category if analysed, else heuristic from feed category."""
+    if a.analysis and a.analysis.lecturette_category in {
+        "security",
+        "economic",
+        "social",
+    }:
+        return a.analysis.lecturette_category
+    return _SES_BY_CATEGORY.get(a.category or "", "social")
+
+
 def _to_card(a: models.Article) -> schemas.ArticleOut:
     return schemas.ArticleOut(
         id=a.id,
@@ -216,6 +238,7 @@ def _to_card(a: models.Article) -> schemas.ArticleOut:
         source_priority=a.source_priority,
         published_at=a.published_at,
         impact_level=a.analysis.impact_level if a.analysis else None,
+        lecturette_category=_ses(a),
         analysed=a.analysis is not None,
     )
 
@@ -346,6 +369,7 @@ def list_news(
     q: str | None = None,
     period: str = "30d",          # 24h | 7d | 30d | 90d | 1y | all
     year: int | None = None,      # exact publication year (overrides period)
+    lecturette: str | None = None,  # security | economic | social
     limit: int = Query(20, le=50),
     offset: int = 0,
     user: models.User = Depends(get_current_user),
@@ -384,8 +408,10 @@ def list_news(
         cutoff = datetime.utcnow() - timedelta(days=days)
         query = query.filter(models.Article.published_at >= cutoff)
 
+    les = lecturette if lecturette in {"security", "economic", "social"} else None
+
     cache_key = (
-        f"news:{tab}:{period}:{year}:{offset}:{limit}"
+        f"news:{tab}:{period}:{year}:{les}:{offset}:{limit}"
         if tab != "personalised" and not q
         else None
     )
@@ -400,6 +426,8 @@ def list_news(
         .limit(600)
         .all()
     )
+    if les:  # SSB lecturette-prep filter
+        pool = [a for a in pool if _ses(a) == les]
     # Crowd score: everyone's aggregated votes nudge the feed for all users.
     crowd = _crowd_scores(db, [a.id for a in pool])
 

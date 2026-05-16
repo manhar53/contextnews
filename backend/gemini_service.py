@@ -50,10 +50,18 @@ Given a news article, respond ONLY in valid JSON with these exact fields:
    "conclusion": "string",
    "estimated_minutes": 3
  },
+ "lecturette_category": "security | economic | social",
  "impact_level": "high | medium | low",
  "key_terms": [{"term": "string", "definition": "string (one line)"}]
 }
 The causal_timeline MUST be ordered oldest-first and include exactly one node of type "current" for the article's main event, with root_cause first and consequence nodes (if any) last.
+
+LECTURETTE CRAFT — the SSB lecturette assesses a candidate's articulation and awareness of contemporary events (global, and India in particular). Build lecturette_structure so a speaker can achieve the three aims of public speaking:
+1. get into your subject — opening must show command of facts/context;
+2. get your subject into yourself — the three points must let the speaker reason and take a clear stance, not just list facts;
+3. get your subject into the heart of the audience — the conclusion must connect to national interest / the listener and end with conviction.
+Use crisp, speakable sentences (not written prose); each point one idea; estimated_minutes ~3.
+Set lecturette_category to the single best fit: "security" (defence, military, terrorism, borders, strategic affairs), "economic" (economy, trade, budget, industry, energy), or "social" (society, governance, education, health, environment, polity).
 
 You are analysing news specifically for Indian defence aspirants preparing for SSB, NDA, CDS, and AFCAT.
 Prioritise and give higher relevance scores (defence_aspirant_impact.relevance and impact_level) to these topics, in this order:
@@ -139,6 +147,7 @@ class GeminiPayload(BaseModel):
     future_consequences: list[FutureItem] = Field(default_factory=list)
     defence_aspirant_impact: DefenceImpact = Field(default_factory=DefenceImpact)
     lecturette_structure: Lecturette = Field(default_factory=Lecturette)
+    lecturette_category: str = "social"
     impact_level: str = "medium"
     key_terms: list[KeyTerm] = Field(default_factory=list)
 
@@ -146,6 +155,12 @@ class GeminiPayload(BaseModel):
     @classmethod
     def _vi(cls, v: str) -> str:
         return _norm_level(v)
+
+    @field_validator("lecturette_category")
+    @classmethod
+    def _vlc(cls, v: str) -> str:
+        s = str(v or "").lower().strip()
+        return s if s in {"security", "economic", "social"} else "social"
 
 
 # ---------- Gemini call with fallback (improvement #1) ----------
@@ -260,6 +275,7 @@ def analyze_article(db: Session, article: Article) -> Analysis | None:
         future_consequences=[f.model_dump() for f in payload.future_consequences],
         defence_aspirant_impact=payload.defence_aspirant_impact.model_dump(),
         lecturette_structure=payload.lecturette_structure.model_dump(),
+        lecturette_category=payload.lecturette_category,
         key_terms=[k.model_dump() for k in payload.key_terms],
         impact_level=payload.impact_level,
     )

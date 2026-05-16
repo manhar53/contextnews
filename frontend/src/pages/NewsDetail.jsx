@@ -200,9 +200,14 @@ export default function NewsDetail() {
             <section className="mt-8 bg-surface2 border border-border rounded-xl p-5">
               <div className="flex items-center justify-between mb-1">
                 <h2 className="text-lg font-bold">Lecturette Ready</h2>
-                <span className="text-xs text-muted">
-                  ~{lec.estimated_minutes || 3} min
-                </span>
+                <div className="flex items-center gap-2 text-xs text-muted">
+                  {a.lecturette_category && (
+                    <span className="px-2 py-0.5 border border-border capitalize">
+                      {a.lecturette_category}
+                    </span>
+                  )}
+                  <span>~{lec.estimated_minutes || 3} min</span>
+                </div>
               </div>
               <div className="space-y-4 text-sm mt-3">
                 {[
@@ -213,7 +218,7 @@ export default function NewsDetail() {
                   ["Conclusion", lec.conclusion],
                 ].map(([label, val]) => (
                   <div key={label}>
-                    <div className="text-xs uppercase tracking-wide text-muted mb-1">
+                    <div className="text-xs font-medium text-muted mb-1">
                       {label}
                     </div>
                     <p>{val || "—"}</p>

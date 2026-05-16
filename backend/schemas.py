@@ -60,6 +60,7 @@ class AnalysisOut(BaseModel):
     future_consequences: list[dict[str, Any]] = []
     defence_aspirant_impact: dict[str, Any] = {}
     lecturette_structure: dict[str, Any] = {}
+    lecturette_category: str = "social"
     key_terms: list[Any] = []
     impact_level: str = "medium"
 
@@ -80,6 +81,7 @@ class ArticleOut(BaseModel):
     source_priority: Optional[int] = 5
     published_at: Optional[datetime]
     impact_level: Optional[str] = None
+    lecturette_category: Optional[str] = None
     analysed: bool = False
 
     class Config:

@@ -66,7 +66,7 @@ export default function Timeline({ timeline = [], future = [] }) {
               >
                 <div className="flex items-center gap-2 mb-1">
                   <span className={`w-2.5 h-2.5 rounded-full ${dotClass(n.tone)}`} />
-                  <span className="text-[10px] uppercase tracking-wide text-muted">
+                  <span className="text-[10px] text-muted">
                     {n.label}
                   </span>
                 </div>
@@ -98,7 +98,7 @@ export default function Timeline({ timeline = [], future = [] }) {
           >
             <div className="flex items-center gap-2 mb-2">
               <span className={`w-3 h-3 rounded-full ${dotClass(popup.tone)}`} />
-              <span className="text-xs uppercase tracking-wide text-muted">
+              <span className="text-xs text-muted">
                 {popup.label} · {popup.date}
               </span>
             </div>

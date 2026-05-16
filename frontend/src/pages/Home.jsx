@@ -19,6 +19,7 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
   const [period, setPeriod] = useState("30d");
+  const [lect, setLect] = useState(""); // "" | security | economic | social
   const [items, setItems] = useState([]);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -32,7 +33,9 @@ export default function Home() {
       const off = reset ? 0 : offset;
       if (reset) setLoading(true);
       try {
-        const batch = await api.listNews({ tab, q, period, limit: PAGE, offset: off });
+        const batch = await api.listNews({
+          tab, q, period, lecturette: lect, limit: PAGE, offset: off,
+        });
         setItems((prev) => (reset ? batch : [...prev, ...batch]));
         setOffset(off + batch.length);
         setMore(batch.length === PAGE);
@@ -42,17 +45,17 @@ export default function Home() {
         setLoading(false);
       }
     },
-    [tab, q, period, offset, logout]
+    [tab, q, period, lect, offset, logout]
   );
 
-  // reset feed when tab, query or period changes
+  // reset feed when tab, query, period or lecturette filter changes
   useEffect(() => {
     setItems([]);
     setOffset(0);
     setMore(true);
     loadPage(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, q, period]);
+  }, [tab, q, period, lect]);
 
   useEffect(() => {
     api.usage().then(setUsage).catch(() => {});
@@ -88,7 +91,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-bg text-text">
-      <header className="sticky top-0 z-10 bg-bg/95 backdrop-blur border-b border-border">
+      <header className="sticky top-0 z-10 bg-bg border-b border-border">
         <div className="max-w-3xl mx-auto px-5 py-4">
           <div className="flex items-center justify-between mb-3">
             <div>
@@ -185,18 +188,40 @@ export default function Home() {
             </select>
           </form>
 
-          <div className="flex gap-2 overflow-x-auto no-scrollbar">
+          <div className="flex gap-5 overflow-x-auto no-scrollbar border-b border-border">
             {TABS.map((t) => (
               <button
                 key={t.key}
                 onClick={() => setTab(t.key)}
-                className={`whitespace-nowrap text-sm px-3 py-1.5 rounded-full border ${
+                className={`whitespace-nowrap text-sm pb-2 -mb-px border-b-2 ${
                   tab === t.key
-                    ? "border-accent bg-surface2 text-text"
-                    : "border-border bg-surface text-muted"
+                    ? "border-accent text-text"
+                    : "border-transparent text-muted hover:text-text"
                 }`}
               >
                 {t.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1 mt-3 text-xs">
+            <span className="text-muted mr-1">Lecturette:</span>
+            {[
+              ["", "All"],
+              ["security", "Security"],
+              ["economic", "Economic"],
+              ["social", "Social"],
+            ].map(([key, label]) => (
+              <button
+                key={key || "all"}
+                onClick={() => setLect(key)}
+                className={`px-2 py-1 border ${
+                  lect === key
+                    ? "border-accent text-text"
+                    : "border-border text-muted hover:text-text"
+                }`}
+              >
+                {label}
               </button>
             ))}
           </div>

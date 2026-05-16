@@ -80,6 +80,7 @@ class Analysis(Base):
     defence_aspirant_impact = Column(JSON, default=dict)    # {relevance,explanation,lecturette_worthy}
     lecturette_structure = Column(JSON, default=dict)       # {opening,point_one,point_two,point_three,conclusion,estimated_minutes}
     key_terms = Column(JSON, default=list)                  # [{term,definition}]
+    lecturette_category = Column(String, default="social")  # security/economic/social
     impact_level = Column(String, default="medium")         # high/medium/low
     created_at = Column(DateTime, default=datetime.utcnow)
 
