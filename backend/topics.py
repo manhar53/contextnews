@@ -6,10 +6,27 @@ analysis in the background, so common SSB topics are always pre-analysed.
 # topic_name -> list of lowercase substring keywords. ANY hit -> important.
 IMPORTANT_TOPICS: dict[str, list[str]] = {
     # Schedule slide 1 — Indo-bilaterals + multilateralism
-    "Indo-US Relations": ["indo-us", "india us", "india-us", "modi biden", "modi trump", "2+2 dialogue"],
-    "Indo-Russia Relations": ["india russia", "india-russia", "modi putin", "s-400", "brahmos"],
-    "Indo-China Relations": ["india china", "india-china", "lac", "ladakh", "galwan", "doklam", "border talks", "xi jinping"],
-    "Indo-Bangladesh Relations": ["bangladesh", "dhaka", "teesta", "hasina", "yunus"],
+    "Indo-US Relations": [
+        "indo-us", "indo us", "india us", "india-us", "us india", "us-india",
+        "modi biden", "biden modi", "modi trump", "trump modi", "modi obama",
+        "2+2 dialogue", "washington delhi", "delhi washington",
+        "india washington", "trade promotion authority india",
+    ],
+    "Indo-Russia Relations": [
+        "india russia", "india-russia", "russia india", "russia-india",
+        "modi putin", "putin modi", "s-400", "brahmos", "rosatom india",
+        "kudankulam", "russian crude india",
+    ],
+    "Indo-China Relations": [
+        "india china", "india-china", "china india", "china-india",
+        "lac", "ladakh", "galwan", "doklam", "tawang", "arunachal pradesh",
+        "border talks", "xi jinping india", "modi xi", "xi modi",
+    ],
+    "Indo-Bangladesh Relations": [
+        "bangladesh india", "india bangladesh", "india-bangladesh",
+        "bangladesh-india", "dhaka delhi", "delhi dhaka",
+        "teesta", "sheikh hasina", "yunus bangladesh",
+    ],
     "Global South / Multilateralism": ["global south", "multilateralism", "g77", "g-77"],
 
     # Schedule slide 2 — Wars / energy / UN / global economy
