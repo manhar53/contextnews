@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_serializer
 
 
 # ---------- Auth ----------
@@ -84,6 +84,15 @@ class ArticleOut(BaseModel):
     lecturette_category: Optional[str] = None
     important: bool = False
     analysed: bool = False
+
+    @field_serializer("published_at")
+    def _ser_dt(self, dt: Optional[datetime]) -> Optional[str]:
+        """Always emit timestamps as UTC ISO so browser `new Date()` reads correctly."""
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat()
 
     class Config:
         from_attributes = True

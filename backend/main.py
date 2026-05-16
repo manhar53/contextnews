@@ -1,6 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -685,7 +685,9 @@ def admin_stats(
         "analyses_24h": analyses_24h,
         "users_at_daily_limit_today": users_at_limit,
         "providers_today": providers_today,
-        "last_analysis_at": last.created_at.isoformat() if last else None,
+        "last_analysis_at": (
+            last.created_at.replace(tzinfo=timezone.utc).isoformat() if last else None
+        ),
         "configured": {
             "gemini": bool(settings.gemini_api_key),
             "groq": bool(settings.groq_api_key),
