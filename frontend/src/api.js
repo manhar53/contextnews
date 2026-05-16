@@ -56,6 +56,10 @@ export const api = {
   analyze: (id) => req(`/api/news/${id}/analyze`, { method: "POST" }),
   usage: () => req("/api/usage"),
   adminStats: () => req("/api/admin/stats"),
+  adminAnalyseNow: () => req("/api/admin/auto-analyse", { method: "POST" }),
+  lecturetteTopics: () => req("/api/lecturette/topics"),
+  lecturetteArticles: (slug, { limit = 20, offset = 0 } = {}) =>
+    req(`/api/lecturette/topics/${slug}?limit=${limit}&offset=${offset}`),
   refreshNews: () => req("/api/news/refresh", { method: "POST" }),
   backfill: () => req("/api/news/backfill", { method: "POST" }),
   signalClick: (id) => req(`/api/news/${id}/click`, { method: "POST" }),

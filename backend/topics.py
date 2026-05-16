@@ -59,6 +59,27 @@ _PAIRS: list[tuple[str, str]] = [
 ]
 
 
+def _slug(name: str) -> str:
+    import re
+
+    s = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return s or "topic"
+
+
+# slug -> {"name": original, "keywords": [...]}
+TOPICS_BY_SLUG: dict[str, dict] = {
+    _slug(name): {"name": name, "keywords": kws}
+    for name, kws in IMPORTANT_TOPICS.items()
+}
+
+
+def topic_index() -> list[dict]:
+    return [
+        {"slug": s, "name": v["name"], "keywords": v["keywords"]}
+        for s, v in TOPICS_BY_SLUG.items()
+    ]
+
+
 def match_topics(text: str) -> list[str]:
     if not text:
         return []

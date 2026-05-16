@@ -9,6 +9,7 @@ const TABS = [
   { key: "top", label: "Top Stories" },
   { key: "defence", label: "Defence Specific" },
   { key: "personalised", label: "Personalised For You" },
+  { key: "lecturette", label: "Lecturette Prep" },
 ];
 const PAGE = 20;
 
@@ -21,6 +22,10 @@ export default function Home() {
   const [period, setPeriod] = useState("30d");
   const [lect, setLect] = useState(""); // "" | security | economic | social
   const [stats, setStats] = useState(null); // owner-only
+  const [lectTopics, setLectTopics] = useState(null); // null = not loaded
+  const [lectSlug, setLectSlug] = useState(null);
+  const [lectItems, setLectItems] = useState([]);
+  const [lectLoading, setLectLoading] = useState(false);
   const [items, setItems] = useState([]);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -51,12 +56,43 @@ export default function Home() {
 
   // reset feed when tab, query, period or lecturette filter changes
   useEffect(() => {
+    if (tab === "lecturette") return; // lecturette tab has its own loaders
     setItems([]);
     setOffset(0);
     setMore(true);
     loadPage(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, q, period, lect]);
+
+  // Switching INTO lecturette tab: load topic list once; reset drill-down.
+  useEffect(() => {
+    if (tab !== "lecturette") {
+      setLectSlug(null);
+      return;
+    }
+    setLectSlug(null);
+    if (lectTopics === null) {
+      setLectLoading(true);
+      api
+        .lecturetteTopics()
+        .then(setLectTopics)
+        .catch(() => setLectTopics([]))
+        .finally(() => setLectLoading(false));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  // Drill-down: load articles when a topic slug is selected.
+  useEffect(() => {
+    if (!lectSlug) return;
+    setLectLoading(true);
+    setLectItems([]);
+    api
+      .lecturetteArticles(lectSlug, { limit: 30 })
+      .then(setLectItems)
+      .catch(() => setLectItems([]))
+      .finally(() => setLectLoading(false));
+  }, [lectSlug]);
 
   useEffect(() => {
     api.usage().then(setUsage).catch(() => {});
@@ -143,19 +179,35 @@ export default function Home() {
                 </button>
               )}
               {usage?.unlimited && (
-                <button
-                  onClick={async () => {
-                    try {
-                      setStats(await api.adminStats());
-                    } catch (e) {
-                      alert("Stats failed: " + e.message);
-                    }
-                  }}
-                  className="text-sm px-3 py-1.5 rounded-lg border border-border hover:border-accent"
-                  title="Owner-only operational stats"
-                >
-                  Stats
-                </button>
+                <>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const r = await api.adminAnalyseNow();
+                        alert(`Auto-analyse run: ${r.analysed} articles analysed`);
+                      } catch (e) {
+                        alert("Analyse failed: " + e.message);
+                      }
+                    }}
+                    className="text-sm px-3 py-1.5 rounded-lg border border-border hover:border-accent"
+                    title="Owner-only: force-run the auto-analyse batch now"
+                  >
+                    Analyse now
+                  </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        setStats(await api.adminStats());
+                      } catch (e) {
+                        alert("Stats failed: " + e.message);
+                      }
+                    }}
+                    className="text-sm px-3 py-1.5 rounded-lg border border-border hover:border-accent"
+                    title="Owner-only operational stats"
+                  >
+                    Stats
+                  </button>
+                </>
               )}
               <button
                 onClick={() => navigate("/onboarding")}
@@ -261,7 +313,16 @@ export default function Home() {
       </header>
 
       <main className="max-w-3xl mx-auto px-5 py-6">
-        {loading ? (
+        {tab === "lecturette" ? (
+          <LecturettePane
+            loading={lectLoading}
+            topics={lectTopics || []}
+            slug={lectSlug}
+            articles={lectItems}
+            onPick={setLectSlug}
+            onBack={() => setLectSlug(null)}
+          />
+        ) : loading ? (
           <div className="grid gap-3 md:grid-cols-2">
             {Array.from({ length: 6 }).map((_, i) => (
               <CardSkeleton key={i} />
@@ -363,6 +424,61 @@ export default function Home() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function LecturettePane({ loading, topics, slug, articles, onPick, onBack }) {
+  if (slug) {
+    const t = topics.find((x) => x.slug === slug);
+    return (
+      <div>
+        <button
+          onClick={onBack}
+          className="text-accent text-sm mb-3"
+        >
+          ← All topics
+        </button>
+        <h2 className="text-lg font-bold mb-4">{t?.name || slug}</h2>
+        {loading ? (
+          <p className="text-muted text-sm">Loading topic articles…</p>
+        ) : articles.length === 0 ? (
+          <p className="text-muted text-sm">
+            No recent articles match this topic yet. Auto-analysis runs every 20 min on freshly ingested news.
+          </p>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            {articles.map((a) => (
+              <NewsCard key={a.id} article={a} />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (loading && topics.length === 0) {
+    return <p className="text-muted text-sm">Loading topics…</p>;
+  }
+  return (
+    <div>
+      <h2 className="text-lg font-bold mb-1">SSB Lecturette / GD topics</h2>
+      <p className="text-muted text-xs mb-4">
+        Curated AFPA topic set. Click one to see matching articles (deep-analysed first).
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {topics.map((t) => (
+          <button
+            key={t.slug}
+            onClick={() => onPick(t.slug)}
+            className="text-left p-3 border border-border rounded-lg hover:border-accent flex items-center justify-between gap-3"
+          >
+            <span className="font-medium truncate">{t.name}</span>
+            <span className="text-xs text-muted shrink-0 whitespace-nowrap">
+              {t.analysed}/{t.total}
+            </span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

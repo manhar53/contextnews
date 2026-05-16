@@ -758,6 +758,99 @@ def refresh_news(
     return {"rss_new": rss, "newsapi_new": napi}
 
 
+@app.post("/api/admin/auto-analyse")
+def admin_run_auto_analyse(user: models.User = Depends(get_current_user)):
+    """Owner-only: kick a synchronous auto_analyse_important run on demand."""
+    if not _is_owner(user):
+        raise HTTPException(status_code=403, detail="Owner only")
+    from auto_analyse import auto_analyse_important
+
+    return {"analysed": auto_analyse_important()}
+
+
+# ---------- Lecturette Prep (AFPA topic-organised view) ----------
+
+def _topic_keyword_filter(keywords: list[str]):
+    """SQL OR over headline/description ilike for any keyword in the topic."""
+    conds = []
+    for kw in keywords:
+        like = f"%{kw}%"
+        conds.append(models.Article.headline.ilike(like))
+        conds.append(models.Article.description.ilike(like))
+    return or_(*conds) if conds else None
+
+
+@app.get("/api/lecturette/topics")
+def lecturette_topics(
+    user: models.User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """List AFPA topics with per-topic article + analysed counts (last 180 days)."""
+    from topics import topic_index
+
+    from sqlalchemy import func
+
+    cutoff = datetime.utcnow() - timedelta(days=180)
+    out = []
+    for t in topic_index():
+        cond = _topic_keyword_filter(t["keywords"])
+        if cond is None:
+            continue
+        base = (
+            db.query(models.Article)
+            .filter(cond)
+            .filter(models.Article.published_at >= cutoff)
+            .filter(models.Article.origin != "gdelt")
+        )
+        total = base.with_entities(func.count(models.Article.id)).scalar() or 0
+        analysed = (
+            base.join(models.Analysis, models.Analysis.article_id == models.Article.id)
+            .with_entities(func.count(models.Analysis.id))
+            .scalar()
+            or 0
+        )
+        out.append(
+            {"slug": t["slug"], "name": t["name"], "total": total, "analysed": analysed}
+        )
+    out.sort(key=lambda x: (-x["analysed"], -x["total"], x["name"]))
+    return out
+
+
+@app.get("/api/lecturette/topics/{slug}", response_model=list[schemas.ArticleOut])
+def lecturette_topic_articles(
+    slug: str,
+    limit: int = Query(20, le=50),
+    offset: int = 0,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Articles matching one AFPA topic — analysed first, then by recency."""
+    from topics import TOPICS_BY_SLUG
+
+    t = TOPICS_BY_SLUG.get(slug)
+    if not t:
+        raise HTTPException(status_code=404, detail="Unknown topic")
+    cond = _topic_keyword_filter(t["keywords"])
+    if cond is None:
+        return []
+    cutoff = datetime.utcnow() - timedelta(days=180)
+    rows = (
+        db.query(models.Article)
+        .outerjoin(models.Analysis, models.Analysis.article_id == models.Article.id)
+        .filter(cond)
+        .filter(models.Article.published_at >= cutoff)
+        .filter(models.Article.origin != "gdelt")
+        .order_by(
+            models.Analysis.id.is_(None).asc(),       # analysed first
+            models.Article.published_at.desc().nullslast(),
+            models.Article.source_priority.desc(),
+        )
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return [_to_card(a) for a in rows]
+
+
 @app.post("/api/news/backfill")
 def backfill(
     user: models.User = Depends(get_current_user), db: Session = Depends(get_db)

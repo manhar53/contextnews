@@ -1,5 +1,6 @@
 """Background scheduler: RSS, NewsAPI, and auto-analysis of important topics."""
 import logging
+from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -17,12 +18,15 @@ def start_scheduler() -> None:
     if _scheduler is not None:
         return
     _scheduler = BackgroundScheduler(daemon=True)
+    # Fire shortly after startup so we don't lose a full interval on every
+    # Render restart; staggered so they don't all hit at once.
+    now = datetime.now()
     _scheduler.add_job(
         fetch_rss_feeds,
         trigger="interval",
         hours=settings.rss_fetch_interval_hours,
         id="rss_fetch",
-        next_run_time=None,
+        next_run_time=now + timedelta(seconds=15),
         replace_existing=True,
     )
     _scheduler.add_job(
@@ -30,7 +34,7 @@ def start_scheduler() -> None:
         trigger="interval",
         hours=settings.newsapi_fetch_interval_hours,
         id="newsapi_fetch",
-        next_run_time=None,
+        next_run_time=now + timedelta(seconds=60),
         replace_existing=True,
     )
     if settings.auto_analyse_enabled:
@@ -39,7 +43,7 @@ def start_scheduler() -> None:
             trigger="interval",
             minutes=settings.auto_analyse_interval_minutes,
             id="auto_analyse",
-            next_run_time=None,
+            next_run_time=now + timedelta(seconds=120),
             replace_existing=True,
         )
     _scheduler.start()
