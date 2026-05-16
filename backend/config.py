@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
     openrouter_api_key: str = ""
-    openrouter_model: str = "meta-llama/llama-3.3-70b-instruct:free"
+    openrouter_model: str = "openai/gpt-oss-120b:free"
     # Provider order (csv). Each runs only if its key is configured.
     llm_provider_order: str = "gemini,groq,openrouter"
     feed_cache_ttl_seconds: int = 120
