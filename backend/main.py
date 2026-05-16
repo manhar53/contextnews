@@ -268,6 +268,28 @@ _RELEVANCE_KW: dict[str, int] = {
 }
 _IMPACT_BOOST = {"high": 8, "medium": 4, "low": 1}
 
+# Weak area -> categories it should up-rank in the Personalised feed.
+_WEAK_CATEGORIES = {
+    "Defence News": {"defence"},
+    "Geopolitics": {"geopolitics"},
+    "International Relations": {"geopolitics"},
+    "Indian Economy": {"economy"},
+}
+# These weak areas favour deeply-analysed / high-impact pieces instead.
+_WEAK_DEPTH = {"Current Affairs Depth", "Lecturette Topics"}
+
+
+def _weak_match(a: models.Article, weak: set[str]) -> int:
+    """1 if the article matches a selected weak area (priority tier), else 0."""
+    if not weak:
+        return 0
+    for w in weak:
+        if a.category in _WEAK_CATEGORIES.get(w, ()):
+            return 1
+    if weak & _WEAK_DEPTH and a.analysis and a.analysis.impact_level in {"high", "medium"}:
+        return 1
+    return 0
+
 
 def _relevance(a: models.Article, affinity: float = 0.0) -> float:
     text = f"{a.headline or ''} {a.description or ''}".lower()
@@ -355,13 +377,21 @@ def list_news(
         clicks, downs, down_ids = _user_affinity(db, user.id)
         pool = [a for a in pool if a.id not in down_ids]
 
+        weak = set(p.weak_areas or [])
+
         def aff(a: models.Article) -> float:
             c = a.category or ""
             return 1.5 * clicks.get(c, 0) - 1.0 * downs.get(c, 0)
 
+        # Weak areas form a priority tier: matching topics float to the top,
+        # still relevance-ordered within each tier.
         ranked = sorted(
             pool,
-            key=lambda a: (_relevance(a, aff(a)), a.published_at or datetime.min),
+            key=lambda a: (
+                _weak_match(a, weak),
+                _relevance(a, aff(a)),
+                a.published_at or datetime.min,
+            ),
             reverse=True,
         )
         return [_to_card(a) for a in ranked[offset : offset + limit]]
