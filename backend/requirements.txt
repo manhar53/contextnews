@@ -12,3 +12,4 @@ feedparser==6.0.11
 bcrypt==4.2.1
 PyJWT==2.10.1
 google-auth==2.37.0
+psycopg2-binary==2.9.10
