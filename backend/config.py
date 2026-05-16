@@ -31,8 +31,9 @@ class Settings(BaseSettings):
     daily_analysis_limit: int = 10
     # Background auto-analysis of "important" SSB topics (no user / no quota).
     auto_analyse_enabled: bool = True
-    auto_analyse_interval_minutes: int = 30
-    auto_analyse_per_run: int = 8
+    auto_analyse_interval_minutes: int = 20
+    auto_analyse_per_run: int = 200          # effective cap; usually limited by max_seconds
+    auto_analyse_max_seconds: int = 1200     # wall-clock budget per run (20 min)
 
     # Comma-separated origins allowed by CORS. Override via ALLOWED_ORIGINS env.
     allowed_origins: str = (

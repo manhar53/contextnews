@@ -1,8 +1,14 @@
-"""Background job: auto-analyse a small batch of un-analysed "important"
-SSB-topic articles via Gemini, so common lecturette topics are pre-prepared
-and shared with every user (cached analyses are free for everyone).
+"""Background job: auto-analyse EVERY un-analysed "important" SSB-topic
+article via the LLM chain so common lecturette topics are pre-prepared and
+shared with every user (cached analyses are free for everyone).
+
+Each run keeps going until one of:
+  * all important articles are analysed,
+  * the per-run wall-clock budget is hit, or
+  * every configured LLM provider returns 429 (real exhaustion).
 """
 import logging
+import time
 from datetime import datetime, timedelta
 
 from config import settings
@@ -15,20 +21,24 @@ logger = logging.getLogger("contextnews.auto_analyse")
 
 
 def auto_analyse_important() -> int:
-    """Pick up to N un-analysed important articles and Gemini-analyse them.
-
-    Stops early on a Gemini rate-limit; preserves the free-tier API quota.
-    """
     if not settings.auto_analyse_enabled:
         return 0
-    if not settings.gemini_api_key:
+    if not (
+        settings.gemini_api_key
+        or settings.groq_api_key
+        or settings.openrouter_api_key
+    ):
         return 0
+
+    started = time.monotonic()
+    budget = float(settings.auto_analyse_max_seconds)
+    max_articles = settings.auto_analyse_per_run
 
     db = SessionLocal()
     done = 0
+    skipped = 0
     try:
-        cutoff = datetime.utcnow() - timedelta(days=14)
-        # Recent un-analysed RSS/NewsAPI articles, highest-credibility first.
+        cutoff = datetime.utcnow() - timedelta(days=30)
         candidates = (
             db.query(Article)
             .outerjoin(Analysis, Analysis.article_id == Article.id)
@@ -39,26 +49,40 @@ def auto_analyse_important() -> int:
                 Article.source_priority.desc(),
                 Article.published_at.desc().nullslast(),
             )
-            .limit(150)
+            .limit(800)
             .all()
         )
         for a in candidates:
-            if done >= settings.auto_analyse_per_run:
+            if done >= max_articles:
+                logger.info("Per-run article cap (%d) reached.", max_articles)
                 break
+            if time.monotonic() - started >= budget:
+                logger.info("Wall-clock budget (%ds) reached after %d analysed.",
+                            int(budget), done)
+                break
+
             text = f"{a.headline or ''} {a.description or ''}"
             if not is_important(text):
                 continue
+
             try:
                 result = analyze_article(db, a)
             except GeminiRateLimited:
-                logger.warning("Gemini rate-limited; stopping this run.")
+                # Every provider is 429 right now — yield until next tick.
+                logger.warning("All LLM providers rate-limited; "
+                                "stopping run with %d analysed, %d skipped.",
+                                done, skipped)
                 break
-            if result is not None:
-                done += 1
-                logger.info("Auto-analysed important article %s: %s",
-                            a.id, (a.headline or "")[:80])
-        if done:
-            logger.info("Auto-analyse complete: %d analysed.", done)
+            if result is None:
+                skipped += 1  # bad output / unconfigured providers
+                continue
+            done += 1
+            if done % 5 == 0:
+                logger.info("auto_analyse progress: %d analysed so far", done)
+
+        if done or skipped:
+            logger.info("Auto-analyse run done: %d analysed, %d skipped.",
+                        done, skipped)
     finally:
         db.close()
     return done
