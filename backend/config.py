@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     rss_fetch_interval_hours: int = 2
     newsapi_fetch_interval_hours: int = 6
 
+    google_client_id: str = ""   # for Google Sign-In token verification
+
     jwt_secret: str = "change-me-in-production"
     jwt_expire_minutes: int = 60 * 24 * 7
     daily_analysis_limit: int = 10

@@ -32,6 +32,8 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => persist(await api.login(email, password));
   const signup = async (email, password) => persist(await api.signup(email, password));
+  const googleLogin = async (credential) =>
+    persist(await api.googleAuth(credential));
   const logout = () => {
     setToken(null);
     localStorage.removeItem("cn_email");
@@ -40,7 +42,9 @@ export function AuthProvider({ children }) {
   const setOnboarded = (v) => setUser((u) => (u ? { ...u, onboarded: v } : u));
 
   return (
-    <AuthCtx.Provider value={{ user, ready, login, signup, logout, setOnboarded }}>
+    <AuthCtx.Provider
+      value={{ user, ready, login, signup, googleLogin, logout, setOnboarded }}
+    >
       {children}
     </AuthCtx.Provider>
   );

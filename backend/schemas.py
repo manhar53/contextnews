@@ -16,6 +16,10 @@ class LoginIn(BaseModel):
     password: str
 
 
+class GoogleAuthIn(BaseModel):
+    credential: str   # Google Identity Services ID token (JWT)
+
+
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"

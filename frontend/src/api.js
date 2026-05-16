@@ -40,6 +40,8 @@ export const api = {
     req("/api/auth/signup", { method: "POST", body: JSON.stringify({ email, password }) }),
   login: (email, password) =>
     req("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  googleAuth: (credential) =>
+    req("/api/auth/google", { method: "POST", body: JSON.stringify({ credential }) }),
   getPreferences: () => req("/api/preferences"),
   savePreferences: (body) =>
     req("/api/preferences", { method: "PUT", body: JSON.stringify(body) }),

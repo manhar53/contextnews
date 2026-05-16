@@ -56,6 +56,7 @@ def health():
         "status": "ok",
         "newsapi_configured": bool(settings.newsapi_key),
         "gemini_configured": bool(settings.gemini_api_key),
+        "google_login_enabled": bool(settings.google_client_id),
     }
 
 
@@ -86,6 +87,44 @@ def login(body: schemas.LoginIn, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.email == email).first()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    onboarded = bool(user.preferences and user.preferences.onboarded)
+    return schemas.TokenOut(
+        access_token=create_token(user.id), email=user.email, onboarded=onboarded
+    )
+
+
+@app.post("/api/auth/google", response_model=schemas.TokenOut)
+def google_auth(body: schemas.GoogleAuthIn, db: Session = Depends(get_db)):
+    """Verify a Google Identity Services ID token; create/link the user."""
+    if not settings.google_client_id:
+        raise HTTPException(status_code=400, detail="Google login is not configured")
+    try:
+        from google.auth.transport import requests as g_requests
+        from google.oauth2 import id_token
+
+        info = id_token.verify_oauth2_token(
+            body.credential, g_requests.Request(), settings.google_client_id
+        )
+    except Exception:  # noqa: BLE001  invalid/expired/wrong-audience token
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+
+    email = (info.get("email") or "").lower()
+    if not email or not info.get("email_verified"):
+        raise HTTPException(status_code=401, detail="Google email not verified")
+
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user:
+        import secrets
+
+        user = models.User(
+            email=email,
+            password_hash=hash_password(secrets.token_urlsafe(32)),  # unusable pw
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        db.add(models.UserPreferences(user_id=user.id))
+        db.commit()
     onboarded = bool(user.preferences and user.preferences.onboarded)
     return schemas.TokenOut(
         access_token=create_token(user.id), email=user.email, onboarded=onboarded
