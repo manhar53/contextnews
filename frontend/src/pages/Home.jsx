@@ -113,27 +113,35 @@ export default function Home() {
               >
                 {refreshing ? "Refreshing…" : "Refresh"}
               </button>
-              <button
-                onClick={async () => {
-                  if (!confirm("Backfill ~12 months of historic context via GDELT? This runs once and may take a minute.")) return;
-                  setRefreshing(true);
-                  try {
-                    await api.backfill();
-                    setItems([]);
-                    setOffset(0);
-                    setMore(true);
-                    loadPage(true);
-                  } catch (e) {
-                    alert("Backfill failed: " + e.message);
-                  } finally {
-                    setRefreshing(false);
-                  }
-                }}
-                disabled={refreshing}
-                className="text-sm px-3 py-1.5 rounded-lg border border-border hover:border-accent disabled:opacity-50"
-              >
-                Backfill
-              </button>
+              {usage?.unlimited && (
+                <button
+                  onClick={async () => {
+                    if (
+                      !confirm(
+                        "One-time historic backfill: pulls ~12 months of older related coverage from GDELT so causal timelines have more depth. Only visible in the feed when 'All time' or a year filter is set. Run now?"
+                      )
+                    )
+                      return;
+                    setRefreshing(true);
+                    try {
+                      await api.backfill();
+                      setItems([]);
+                      setOffset(0);
+                      setMore(true);
+                      loadPage(true);
+                    } catch (e) {
+                      alert("Backfill failed: " + e.message);
+                    } finally {
+                      setRefreshing(false);
+                    }
+                  }}
+                  disabled={refreshing}
+                  title="Owner-only: one-shot historic depth load"
+                  className="text-sm px-3 py-1.5 rounded-lg border border-border hover:border-accent disabled:opacity-50"
+                >
+                  Backfill
+                </button>
+              )}
               {usage?.unlimited && (
                 <button
                   onClick={async () => {
@@ -169,39 +177,47 @@ export default function Home() {
               e.preventDefault();
               setQ(search.trim());
             }}
-            className="mb-3 flex gap-2"
+            className="mb-3 flex flex-col sm:flex-row gap-2"
           >
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search headlines… (searches all dates)"
-              className="flex-1 bg-surface border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-accent"
+              className="flex-1 min-w-0 bg-surface border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-accent"
             />
-            {search && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSearch("");
-                  setQ("");
-                }}
-                className="text-sm px-3 rounded-lg border border-border text-muted"
+            <div className="flex gap-2">
+              <select
+                value={period}
+                onChange={(e) => setPeriod(e.target.value)}
+                title="Time range"
+                className="flex-1 sm:flex-none bg-surface border border-border rounded-lg px-2 py-2 text-sm outline-none focus:border-accent"
               >
-                Clear
-              </button>
-            )}
-            <select
-              value={period}
-              onChange={(e) => setPeriod(e.target.value)}
-              title="Time range"
-              className="bg-surface border border-border rounded-lg px-2 py-2 text-sm outline-none focus:border-accent"
-            >
               <option value="24h">24 hours</option>
               <option value="7d">This week</option>
               <option value="30d">This month</option>
               <option value="90d">3 months</option>
               <option value="1y">This year</option>
               <option value="all">All time (incl. historic)</option>
-            </select>
+              </select>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-lg bg-accent text-white text-sm font-semibold"
+              >
+                Search
+              </button>
+              {q && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch("");
+                    setQ("");
+                  }}
+                  className="text-sm px-3 rounded-lg border border-border text-muted"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           </form>
 
           <div className="flex gap-5 overflow-x-auto no-scrollbar border-b border-border">

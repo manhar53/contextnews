@@ -61,6 +61,12 @@ RSS_FEEDS: dict[str, tuple[str, str]] = {
     _gnews("Indian foreign policy OR India diplomacy OR Indo-Pacific"): ("Google News · Diplomacy", "geopolitics"),
     _gnews("Ministry of Defence India OR defence budget India"): ("Google News · MoD/Policy", "government"),
     _gnews("Indian economy"): ("Google News · Economy", "economy"),
+    # Broader news-hub feeds (Top Stories diversity, not defence-specific)
+    _gnews("world news today"): ("Google News · World", "general"),
+    _gnews("India business OR Indian markets OR Sensex Nifty"): ("Google News · Business India", "economy"),
+    _gnews("India technology OR Indian startups OR AI India"): ("Google News · Tech India", "general"),
+    _gnews("India health OR public health India"): ("Google News · Health India", "india"),
+    _gnews("India top news"): ("Google News · India Top", "india"),
 }
 
 

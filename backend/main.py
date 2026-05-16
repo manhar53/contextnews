@@ -406,10 +406,24 @@ def list_news(
         query = query.filter(models.Article.category.in_(cats or {"india"}))
 
     if q:
-        like = f"%{q.strip()}%"
-        query = query.filter(
-            or_(models.Article.headline.ilike(like), models.Article.description.ilike(like))
-        )
+        # Tokenised search: each word (>=2 chars) matches headline/desc; ANY
+        # token hit wins. Lets "modi ji" return Modi articles, "india china
+        # border" return either, etc.
+        import re
+
+        tokens = [t for t in re.findall(r"[A-Za-z0-9]{2,}", q) if t]
+        if tokens:
+            conds = []
+            for t in tokens:
+                like = f"%{t}%"
+                conds.append(models.Article.headline.ilike(like))
+                conds.append(models.Article.description.ilike(like))
+            query = query.filter(or_(*conds))
+        else:
+            like = f"%{q.strip()}%"
+            query = query.filter(
+                or_(models.Article.headline.ilike(like), models.Article.description.ilike(like))
+            )
 
     include_historic = period == "all" or year is not None or bool(q)
     if not include_historic:
