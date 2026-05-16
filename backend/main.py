@@ -1,10 +1,10 @@
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import or_
+from sqlalchemy import extract, or_
 from sqlalchemy.orm import Session
 
 import models
@@ -200,16 +200,26 @@ def _user_affinity(db: Session, user_id: int):
     return clicks, downs, down_ids
 
 
+_PERIOD_DAYS = {"24h": 1, "7d": 7, "30d": 30, "90d": 90, "1y": 365}
+
+
 @app.get("/api/news", response_model=list[schemas.ArticleOut])
 def list_news(
     tab: str = "top",
     q: str | None = None,
+    period: str = "30d",          # 24h | 7d | 30d | 90d | 1y | all
+    year: int | None = None,      # exact publication year (overrides period)
     limit: int = Query(20, le=50),
     offset: int = 0,
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """tab: top | defence | personalised. Supports search (q) + pagination."""
+    """Current affairs first. tab: top | defence | personalised.
+
+    Recency is the primary ordering; source credibility / personalisation are
+    tiebreakers. Historic GDELT backfill is hidden from the default feed and
+    only surfaced when searching, picking a year, or period=all.
+    """
     query = db.query(models.Article)
 
     if tab == "defence":
@@ -221,9 +231,7 @@ def list_news(
                 models.Article.category.in_({"geopolitics", "economy", "general"})
             )
         elif p.news_scope == "local":
-            query = query.filter(
-                models.Article.category.in_({"india", "government"})
-            )
+            query = query.filter(models.Article.category.in_({"india", "government"}))
         else:  # national
             query = query.filter(
                 models.Article.category.in_({"india", "defence", "government"})
@@ -235,9 +243,21 @@ def list_news(
             or_(models.Article.headline.ilike(like), models.Article.description.ilike(like))
         )
 
+    # Historic (GDELT 5-yr backfill) only when explicitly wanted.
+    include_historic = period == "all" or year is not None or bool(q)
+    if not include_historic:
+        query = query.filter(models.Article.origin != "gdelt")
+
+    # Date window
+    if year is not None:
+        query = query.filter(extract("year", models.Article.published_at) == year)
+    elif period != "all":
+        days = _PERIOD_DAYS.get(period, 30)
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        query = query.filter(models.Article.published_at >= cutoff)
+
     if tab == "personalised":
-        # Per-user ranking: source credibility + learned category affinity.
-        # Not cached (varies per user). Downvoted articles are excluded.
+        # Recency-first, then learned affinity, then credibility. Downvoted hidden.
         clicks, downs, down_ids = _user_affinity(db, user.id)
         pool = (
             query.order_by(models.Article.published_at.desc().nullslast())
@@ -245,22 +265,25 @@ def list_news(
             .all()
         )
 
-        def score(a: models.Article) -> float:
+        def affinity(a: models.Article) -> float:
             cat = a.category or ""
-            s = float(a.source_priority or 5)
-            s += 1.5 * clicks.get(cat, 0)        # interest signal
-            s -= 1.0 * downs.get(cat, 0)         # category-level irrelevance
-            return s
+            return 1.5 * clicks.get(cat, 0) - 1.0 * downs.get(cat, 0)
 
         ranked = sorted(
             (a for a in pool if a.id not in down_ids),
-            key=lambda a: (score(a), a.published_at or datetime.min),
+            key=lambda a: (
+                a.published_at or datetime.min,   # current affairs first
+                affinity(a),                       # then personalisation
+                a.source_priority or 5,            # then credibility
+            ),
             reverse=True,
         )
         return [_to_card(a) for a in ranked[offset : offset + limit]]
 
-    # top / defence: layer-1 ordering (credibility, then recency). Cacheable.
-    cache_key = f"news:{tab}:{offset}:{limit}" if not q else None
+    # top / defence: recency first, source credibility as tiebreaker.
+    cache_key = (
+        f"news:{tab}:{period}:{year}:{offset}:{limit}" if not q else None
+    )
     if cache_key:
         cached = cache_get(db, cache_key)
         if cached is not None:
@@ -268,8 +291,8 @@ def list_news(
 
     rows = (
         query.order_by(
-            models.Article.source_priority.desc(),
             models.Article.published_at.desc().nullslast(),
+            models.Article.source_priority.desc(),
         )
         .offset(offset)
         .limit(limit)

@@ -18,6 +18,7 @@ export default function Home() {
   const [tab, setTab] = useState("top");
   const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
+  const [period, setPeriod] = useState("30d");
   const [items, setItems] = useState([]);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -31,7 +32,7 @@ export default function Home() {
       const off = reset ? 0 : offset;
       if (reset) setLoading(true);
       try {
-        const batch = await api.listNews({ tab, q, limit: PAGE, offset: off });
+        const batch = await api.listNews({ tab, q, period, limit: PAGE, offset: off });
         setItems((prev) => (reset ? batch : [...prev, ...batch]));
         setOffset(off + batch.length);
         setMore(batch.length === PAGE);
@@ -41,17 +42,17 @@ export default function Home() {
         setLoading(false);
       }
     },
-    [tab, q, offset, logout]
+    [tab, q, period, offset, logout]
   );
 
-  // reset feed when tab or query changes
+  // reset feed when tab, query or period changes
   useEffect(() => {
     setItems([]);
     setOffset(0);
     setMore(true);
     loadPage(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, q]);
+  }, [tab, q, period]);
 
   useEffect(() => {
     api.usage().then(setUsage).catch(() => {});
@@ -147,14 +148,39 @@ export default function Home() {
               e.preventDefault();
               setQ(search.trim());
             }}
-            className="mb-3"
+            className="mb-3 flex gap-2"
           >
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search headlines…"
-              className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-accent"
+              placeholder="Search headlines… (searches all dates)"
+              className="flex-1 bg-surface border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-accent"
             />
+            {search && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch("");
+                  setQ("");
+                }}
+                className="text-sm px-3 rounded-lg border border-border text-muted"
+              >
+                Clear
+              </button>
+            )}
+            <select
+              value={period}
+              onChange={(e) => setPeriod(e.target.value)}
+              title="Time range"
+              className="bg-surface border border-border rounded-lg px-2 py-2 text-sm outline-none focus:border-accent"
+            >
+              <option value="24h">24 hours</option>
+              <option value="7d">This week</option>
+              <option value="30d">This month</option>
+              <option value="90d">3 months</option>
+              <option value="1y">This year</option>
+              <option value="all">All time (incl. historic)</option>
+            </select>
           </form>
 
           <div className="flex gap-2 overflow-x-auto no-scrollbar">

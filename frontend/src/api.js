@@ -43,9 +43,10 @@ export const api = {
   getPreferences: () => req("/api/preferences"),
   savePreferences: (body) =>
     req("/api/preferences", { method: "PUT", body: JSON.stringify(body) }),
-  listNews: ({ tab = "top", q = "", limit = 20, offset = 0 } = {}) => {
-    const params = new URLSearchParams({ tab, limit, offset });
+  listNews: ({ tab = "top", q = "", period = "30d", year, limit = 20, offset = 0 } = {}) => {
+    const params = new URLSearchParams({ tab, period, limit, offset });
     if (q) params.set("q", q);
+    if (year) params.set("year", year);
     return req(`/api/news?${params.toString()}`);
   },
   getNewsDetail: (id) => req(`/api/news/${id}`),
